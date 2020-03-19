@@ -1,0 +1,7 @@
+nltk
+pandas
+spacy
+tqdm
+cytoolz
+jupyterlab
+ipython
