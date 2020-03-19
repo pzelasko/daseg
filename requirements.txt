@@ -1,7 +1,9 @@
-nltk
+nltk>=3.0
 pandas
-spacy
+spacy==2.2.4
 tqdm
 cytoolz
 jupyterlab
 ipython
+torch==1.4.0
+torchvision==0.5.0

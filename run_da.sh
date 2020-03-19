@@ -19,6 +19,7 @@ export BERT_MODEL=xlm-roberta-base
 export MODEL_TYPE=xlmroberta
 export MAX_LENGTH=512
 
+wget "https://raw.githubusercontent.com/stefan-it/fine-tuned-berts-seq/master/scripts/preprocess.py"
 python3 preprocess.py train.txt.tmp $BERT_MODEL $MAX_LENGTH > train.txt
 python3 preprocess.py dev.txt.tmp $BERT_MODEL $MAX_LENGTH > dev.txt
 python3 preprocess.py test.txt.tmp $BERT_MODEL $MAX_LENGTH > test.txt
