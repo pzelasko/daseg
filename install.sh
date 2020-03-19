@@ -23,3 +23,9 @@ cd "$CWD"
 
 # Grab a spacy model
 python -m spacy download en_core_web_sm
+
+# Get Transformers
+git clone https://github.com/huggingface/transformers deps/transformers
+cd deps/transformers
+pip install -e .
+cd "$CWD"
