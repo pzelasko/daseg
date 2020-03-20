@@ -3,22 +3,27 @@ Utilities for retrieving, manipulating and storing the dialog act data.
 """
 import random
 import re
-from itertools import groupby
+from itertools import groupby, chain
 from typing import NamedTuple, Tuple, List, FrozenSet, Iterable, Dict, AbstractSet
 
+import torch
 from spacy import displacy
+from spacy.symbols import ORTH
 from spacy.tokens.doc import Doc
 from spacy.tokens.span import Span
-from spacy.symbols import ORTH
 from swda import Transcript, CorpusReader
+from torch.nn.modules.loss import CrossEntropyLoss
+from torch.utils.data import TensorDataset, SequentialSampler, DataLoader
 from tqdm import tqdm
+from transformers import PreTrainedTokenizer
 
 from daseg.resources import DIALOG_ACTS, COLORMAP, get_nlp, get_tokenizer
 
 __all__ = ['FunctionalSegment', 'Call', 'SwdaDataset']
 
-
 # Symbol used in SWDA to indicate that the dialog act is the same as in previous turn
+from deps.transformers.examples.ner.utils_ner import InputExample, convert_examples_to_features
+
 CONTINUATION = '+'
 
 # Marks beginning of a new tag;
@@ -58,6 +63,20 @@ class SwdaDataset:
     def calls(self) -> List['Call']:
         return list(self.dialogues.values())
 
+    @property
+    def dialog_acts(self) -> List[str]:
+        return sorted(set(segment.dialog_act for call in self.calls for segment in call))
+
+    @property
+    def dialog_act_labels(self) -> List[str]:
+        return list(chain.from_iterable(
+            (f'{BEGIN_TAG}{da}', f'{CONTINUE_TAG}{da}') for da in self.dialog_acts
+        )) + [BLANK]
+
+    @property
+    def vocabulary(self) -> List[str]:
+        return sorted(set(w for call in self.calls for segment in call for w in segment.text.split()))
+
     def special_symbols(self) -> FrozenSet[str]:
         """Return the set of symbols in brackets found in SWDA transcripts."""
         uniq_words = {w for segments in self.dialogues.values() for text, _, _, _ in segments for w in text.split()}
@@ -66,15 +85,14 @@ class SwdaDataset:
 
     def acts_with_examples(self):
         from cytoolz import groupby
-        texts_by_act = groupby(
+        return groupby(
             lambda tpl: tpl[0],
             sorted(
-                (act, text)
-                for tr in self.calls
-                for text, act, _, _ in tr
+                (segment.dialog_act, segment.text)
+                for call in self.calls
+                for segment in call
             )
         )
-        return texts_by_act
 
     def train_dev_test_split(self) -> Dict[str, 'SwdaDataset']:
         from daseg.splits import train_set_idx, valid_set_idx, test_set_idx
@@ -93,6 +111,69 @@ class SwdaDataset:
                     print(line, file=f)
                 print(file=f)
 
+    def to_transformers_ner_format(
+            self,
+            tokenizer: PreTrainedTokenizer,
+            max_seq_length: int,
+            model_type: str,
+            batch_size: int,
+            labels: Iterable[str]
+    ) -> DataLoader:
+        """
+        Convert the DA dataset into a PyTorch DataLoader for inference.
+        :param tokenizer: Transformers pre-trained tokenizer object
+        :param max_seq_length: self-explanatory
+        :param model_type: string describing Transformers model type (e.g. xlnet, xlmroberta, bert, ...)
+        :param batch_size: self-explanatory
+        :param labels: By default not required,
+            but you might run into problems if this is a subset of a
+            larger dataset which doesn't cover
+            every label - then use this arg to supply the full list of labels
+        :return: PyTorch DataLoader
+        """
+
+        ner_examples = []
+        for idx, call in enumerate(self.calls):
+            # This does some unnecessary back-and-forth but it's convenient
+            lines = to_transformers_ner_dataset(call, special_symbols=self.special_symbols())
+            words, tags = zip(*[l.split() for l in lines])
+            ner_examples.append(InputExample(guid=idx, words=words, labels=tags))
+
+        # The following lines are basically a copy-paste of Transformer's NER code
+
+        ner_features = convert_examples_to_features(
+            examples=ner_examples,
+            label_list=labels,
+            max_seq_length=max_seq_length,
+            tokenizer=tokenizer,
+            cls_token_at_end=bool(model_type in ["xlnet"]),
+            # xlnet has a cls token at the end
+            cls_token=tokenizer.cls_token,
+            cls_token_segment_id=2 if model_type in ["xlnet"] else 0,
+            sep_token=tokenizer.sep_token,
+            sep_token_extra=bool(model_type in ["roberta"]),
+            # roberta uses an extra separator b/w pairs of sentences, cf. github.com/pytorch/fairseq/commit/1684e166e3da03f5b600dbb7855cb98ddfcd0805
+            pad_on_left=bool(model_type in ["xlnet"]),
+            # pad on the left for xlnet
+            pad_token=tokenizer.convert_tokens_to_ids([tokenizer.pad_token])[0],
+            pad_token_segment_id=4 if model_type in ["xlnet"] else 0,
+            pad_token_label_id=CrossEntropyLoss().ignore_index,
+        )
+
+        all_input_ids = torch.tensor([f.input_ids for f in ner_features], dtype=torch.long)
+        all_input_mask = torch.tensor([f.input_mask for f in ner_features], dtype=torch.long)
+        all_segment_ids = torch.tensor([f.segment_ids for f in ner_features], dtype=torch.long)
+        all_label_ids = torch.tensor([f.label_ids for f in ner_features], dtype=torch.long)
+        dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
+
+        dataloader = DataLoader(
+            dataset=dataset,
+            sampler=SequentialSampler(dataset),
+            batch_size=batch_size
+        )
+
+        return dataloader
+
     def subset(self, selected_ids: Iterable[str]) -> 'SwdaDataset':
         selected_ids = set(selected_ids)
         dialogues = {call_id: segments for call_id, segments in self.dialogues.items() if call_id in selected_ids}
@@ -100,6 +181,12 @@ class SwdaDataset:
 
 
 class Call(list):
+    def words(self, add_turn_token: bool = True):
+        ws = [w for seg in self for w in seg.text.split() + ([NEW_TURN] if add_turn_token else [])]
+        if add_turn_token:
+            ws = ws[:-1]
+        return ws
+
     def render(self, max_turns=None):
         """Render the call as annotated with dialog acts in a Jupyter notebook"""
 
@@ -147,6 +234,7 @@ def parse_transcript(swda_tr: Transcript) -> Tuple[str, Call]:
     brackets = re.compile(r'(<\S+)\s(\S+>)')
     segments = (
         FunctionalSegment(
+            # TODO: a lot more text cleaning I guess... or not?
             text=brackets.sub(
                 '\\1\\2',
                 ' '.join(utt.text_words(filter_disfluency=True))
@@ -259,7 +347,6 @@ def read_transformers_preds(preds_path: str) -> 'SwdaDataset':
         if predictions:
             yield predictions
 
-
     def turns(call):
         turn = []
         for line in call:
@@ -276,7 +363,8 @@ def read_transformers_preds(preds_path: str) -> 'SwdaDataset':
         prev_tag = None
         for line in turn:
             text, tag = line.split()
-            if prev_tag is None or tag == prev_tag or (is_begin_act(prev_tag) and is_continued_act(tag) and decode_act(prev_tag) == decode_act(tag)):
+            if prev_tag is None or tag == prev_tag or (
+                    is_begin_act(prev_tag) and is_continued_act(tag) and decode_act(prev_tag) == decode_act(tag)):
                 segment.append((text, tag))
             else:
                 yield segment
@@ -304,5 +392,3 @@ def read_transformers_preds(preds_path: str) -> 'SwdaDataset':
         resolved_calls.append(Call(resolved_segments))
     # TODO: resolve correct call ids
     return SwdaDataset({str(i): c for i, c in zip(range(1000000), resolved_calls)})
-
-
