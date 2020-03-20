@@ -140,7 +140,7 @@ class SwdaDataset:
             ner_examples.append(InputExample(guid=idx, words=words, labels=tags))
 
         # The following lines are basically a copy-paste of Transformer's NER code
-
+        # TODO: It could be modified to create "ragged" batches for faster CPU inference
         ner_features = convert_examples_to_features(
             examples=ner_examples,
             label_list=labels,
