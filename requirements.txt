@@ -5,5 +5,7 @@ tqdm
 cytoolz
 jupyterlab
 ipython
+sklearn>=0.22
 torch==1.4.0
 torchvision==0.5.0
+git+https://github.com/pzelasko/seqeval

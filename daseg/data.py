@@ -4,7 +4,7 @@ Utilities for retrieving, manipulating and storing the dialog act data.
 import random
 import re
 from itertools import groupby, chain
-from typing import NamedTuple, Tuple, List, FrozenSet, Iterable, Dict, AbstractSet
+from typing import NamedTuple, Tuple, List, FrozenSet, Iterable, Dict, AbstractSet, Optional
 
 import torch
 from spacy import displacy
@@ -213,7 +213,7 @@ class Call(list):
             for (t, act, _, _) in group:
                 words = t.split()
                 end = begin + len(words)
-                ents.append(Span(doc, begin, end, label=act))
+                ents.append(Span(doc, begin, end, label=act or 'None'))
                 begin = end
             doc.ents = ents
 
@@ -224,7 +224,7 @@ class Call(list):
 
 class FunctionalSegment(NamedTuple):
     text: str
-    dialog_act: str
+    dialog_act: Optional[str]
     speaker: str
     is_continuation: bool = False
 
@@ -302,10 +302,12 @@ def to_transformers_ner_dataset(call: List, special_symbols: AbstractSet[str]) -
     prev_spk = None
     prev_tag = {'A': None, 'B': None}
     for utt, tag, who, is_continuation in call:
-        tag = '-'.join(tag.split())
+        tag = '-'.join(tag.split()) if tag is not None else tag
         doc = tokenizer(utt)
         tokens = [tok for tok in doc]
-        if is_continuation:
+        if tag is None:
+            labels = [BLANK] * len(tokens)
+        elif is_continuation:
             labels = [f'{CONTINUE_TAG}{prev_tag[who]}'] * len(tokens)
         else:
             labels = [f'{BEGIN_TAG}{tag}'] + [f'{CONTINUE_TAG}{tag}'] * (len(tokens) - 1)
