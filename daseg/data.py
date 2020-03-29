@@ -289,11 +289,16 @@ Transformers IO specific methods.
 """
 
 
-def to_transformers_ner_dataset(call: List, special_symbols: AbstractSet[str]) -> List[str]:
+def to_transformers_ner_dataset(
+        call: List,
+        special_symbols: AbstractSet[str],
+        use_spacy_tokenizer: bool = False
+) -> List[str]:
     """
     Convert a list of functional segments into text representations,
     used by the Transformers library to train NER models.
     """
+    # TODO: possibly remove spacy tokenizer altogether, it's redundant with transformers tokenizers
     tokenizer = get_tokenizer()
     # Avoid spacy tokenizations of the sort <my-token> -> < my - token >
     for sym in special_symbols:
@@ -303,8 +308,7 @@ def to_transformers_ner_dataset(call: List, special_symbols: AbstractSet[str]) -
     prev_tag = {'A': None, 'B': None}
     for utt, tag, who, is_continuation in call:
         tag = '-'.join(tag.split()) if tag is not None else tag
-        doc = tokenizer(utt)
-        tokens = [tok for tok in doc]
+        tokens = [tok for tok in tokenizer(utt)] if use_spacy_tokenizer else utt.split()
         if tag is None:
             labels = [BLANK] * len(tokens)
         elif is_continuation:
