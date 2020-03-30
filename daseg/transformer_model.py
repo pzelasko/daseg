@@ -1,7 +1,7 @@
 import json
 from functools import partial
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import numpy as np
 import torch
@@ -12,7 +12,6 @@ from tqdm import tqdm
 from transformers import AutoConfig, AutoTokenizer, AutoModelForTokenClassification
 
 from daseg.data import SwdaDataset
-
 
 __all__ = ['TransformerModel']
 
@@ -27,8 +26,13 @@ class TransformerModel:
         )
         self.model = AutoModelForTokenClassification.from_pretrained(model_dir).to('cpu').eval()
 
-    def predict(self, dataset: SwdaDataset, num_jobs: int = 1) -> Dict[str, Any]:
-        max_len = 2 * max(len(c.words()) for c in dataset.calls)
+    def predict(
+            self,
+            dataset: SwdaDataset,
+            num_jobs: int = 1,
+            forced_max_len: Optional[int] = None
+    ) -> Dict[str, Any]:
+        max_len = forced_max_len if forced_max_len is not None else 2 * max(len(c.words()) for c in dataset.calls)
         # TODO: max len should be more bc of tokenization, for now 2 * is a heuristic...
         labels = list(self.config.label2id.keys())
 

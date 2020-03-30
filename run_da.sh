@@ -1,7 +1,5 @@
 #!/bin/bash
 
-set -eou pipefail
-
 # My own setup for the CLSP grid - you might need to adjust it for your own purposes
 if [[ $(hostname -f) == *.clsp.jhu.edu ]]; then
   cd /home/pzelasko/daseg/deps/transformers/examples/ner
@@ -14,7 +12,9 @@ else
   cd deps/transformers/examples/ner
 fi
 
-export OUTPUT_DIR=swda-xlmroberta-t43
+set -eou pipefail
+
+export OUTPUT_DIR=swda-xlmroberta-t45-nospacy-tb
 export BERT_MODEL=xlm-roberta-base
 export MODEL_TYPE=xlmroberta
 export MAX_LENGTH=512
@@ -26,8 +26,8 @@ python3 preprocess.py test.txt.tmp $BERT_MODEL $MAX_LENGTH > test.txt
 cat train.txt dev.txt test.txt | cut -d " " -f 2 | grep -v "^$"| sort | uniq > labels.txt
 
 export BATCH_SIZE=8
-export NUM_EPOCHS=3
-export SAVE_STEPS=750
+export NUM_EPOCHS=10
+export SAVE_STEPS=500
 export SEED=1
 
 python3 run_ner.py --data_dir ./ \
@@ -40,6 +40,8 @@ python3 run_ner.py --data_dir ./ \
 --per_gpu_train_batch_size $BATCH_SIZE \
 --save_steps $SAVE_STEPS \
 --seed $SEED \
+--evaluate_during_training \
+--overwrite_cache \
 --do_eval \
 --do_predict \
 --do_train
