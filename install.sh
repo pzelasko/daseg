@@ -6,7 +6,7 @@ CWD="$(pwd)"
 
 mkdir -p deps
 
-# Obtain the swda repo and make it a detectable python package
+## Obtain the swda repo and make it a detectable python package
 git clone https://github.com/cgpotts/swda deps/swda
 cat << EOM > deps/swda/setup.py
 from setuptools import setup, find_packages
@@ -27,5 +27,12 @@ python -m spacy download en_core_web_sm
 # Get Transformers
 git clone https://github.com/huggingface/transformers deps/transformers
 cd deps/transformers
+pip install -e .
+cd "$CWD"
+
+# Get AllenNLP
+git clone https://github.com/allenai/allennlp deps/allennlp
+cd deps/allennlp
+git checkout v1.0-prerelease
 pip install -e .
 cd "$CWD"
