@@ -4,7 +4,7 @@ Utilities for retrieving, manipulating and storing the dialog act data.
 import random
 import re
 from itertools import groupby, chain
-from typing import NamedTuple, Tuple, List, FrozenSet, Iterable, Dict, AbstractSet, Optional
+from typing import NamedTuple, Tuple, List, FrozenSet, Iterable, Dict, AbstractSet, Optional, Callable
 
 import torch
 from spacy import displacy
@@ -85,14 +85,17 @@ class SwdaDataset:
 
     def acts_with_examples(self):
         from cytoolz import groupby
-        return groupby(
-            lambda tpl: tpl[0],
-            sorted(
-                (segment.dialog_act, segment.text)
-                for call in self.calls
-                for segment in call
-            )
-        )
+        return {
+            act: list(zip(*group))[1]
+            for act, group in groupby(
+                lambda tpl: tpl[0],
+                sorted(
+                    (segment.dialog_act, segment.text)
+                    for call in self.calls
+                    for segment in call
+                )
+            ).items()
+        }
 
     def train_dev_test_split(self) -> Dict[str, 'SwdaDataset']:
         from daseg.splits import train_set_idx, valid_set_idx, test_set_idx
@@ -230,19 +233,18 @@ class FunctionalSegment(NamedTuple):
 
 
 def parse_transcript(swda_tr: Transcript) -> Tuple[str, Call]:
+    normalize_text = create_text_normalizer()
     call_id = decode_swda_id(swda_tr)
-    brackets = re.compile(r'(<\S+)\s(\S+>)')
     segments = (
         FunctionalSegment(
-            # TODO: a lot more text cleaning I guess... or not?
-            text=brackets.sub(
-                '\\1\\2',
-                ' '.join(utt.text_words(filter_disfluency=True))
-            ),
+            text=normalize_text(' '.join(utt.text_words(filter_disfluency=True))),
             dialog_act=lookup_or_fix(utt.act_tag),
             speaker=utt.caller
         ) for utt in swda_tr.utterances
     )
+    # Remove segments which became empty as a result of text normalization (i.e. have no text, just punctuation)
+    characters = re.compile(r'[a-zA-Z]+')
+    segments = (seg for seg in segments if characters.search(seg.text))
     # Resolve '+' into dialog act
     resolved_segments = []
     prev_tag = {'A': 'Other', 'B': 'Other'}  # there seems to be exactly one case where the first DA is '+'
@@ -398,3 +400,31 @@ def read_transformers_preds(preds_path: str) -> 'SwdaDataset':
         resolved_calls.append(Call(resolved_segments))
     # TODO: resolve correct call ids
     return SwdaDataset({str(i): c for i, c in zip(range(1000000), resolved_calls)})
+
+
+def create_text_normalizer() -> Callable[[str], str]:
+    remove_patterns = tuple(map(
+        re.compile,
+        [
+            r'<<[^>]*>>',  # <<talks to another person>>
+            r'<[^>]*>',  # <noise>
+            r'\(\([^)]*\)\)',  # ((Hailey)), what is that?
+            r'\([^)]*\)',  # ... ?
+            r'\(',  # unbalanced parentheses
+            r'\)',  #
+            r'#',  # comments?
+        ]
+    ))
+
+    remove_leading_nontext = re.compile(r'^[^a-zA-Z]+([a-zA-Z])')
+    correct_punctuation_whitespace = re.compile(r' ([.,?!])')
+
+    def normalize(text: str) -> str:
+        for p in remove_patterns:
+            text = p.sub('', text)
+        text = text.split('*')[0].strip()  # Comments after asterisk
+        text = remove_leading_nontext.sub(r'\1', text)  # ". . Hi again." => "Hi again."
+        text = correct_punctuation_whitespace.sub(r'\1', text)  # "Hi Jack ." -> "Hi Jack."
+        return text
+
+    return normalize

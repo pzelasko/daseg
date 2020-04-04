@@ -2,7 +2,6 @@ from functools import lru_cache
 
 import spacy
 
-
 __all__ = ['get_nlp', 'get_tokenizer', 'DIALOG_ACTS']
 
 

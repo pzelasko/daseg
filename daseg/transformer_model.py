@@ -49,7 +49,6 @@ class TransformerModel:
             dataset: SwdaDataset,
             num_jobs: int = 1,
             forced_max_len: Optional[int] = None,
-            output_dataset: bool = False,
             crf_decoding: bool = False
     ) -> Dict[str, Any]:
         max_len = forced_max_len if forced_max_len is not None else 2 * max(len(c.words()) for c in dataset.calls)
@@ -100,9 +99,8 @@ class TransformerModel:
             "recall": recall_score(out_label_list, preds_list),
             "f1": f1_score(out_label_list, preds_list),
             "accuracy": accuracy_score(out_label_list, preds_list),
+            "dataset": predictions_to_dataset(dataset, preds_list)
         }
-        if output_dataset:
-            results["dataset"] = predictions_to_dataset(dataset, preds_list)
 
         return results
 
