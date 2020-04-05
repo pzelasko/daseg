@@ -105,14 +105,30 @@ class SwdaDataset:
             'test': self.subset(test_set_idx)
         }
 
-    def dump_for_transformers_ner(self, path: str):
-        """Write this dataset to a text file used by Transformers NER recipe."""
+    def dump_for_transformers_ner(
+            self,
+            path: str,
+            acts_count_per_sample: Optional[int] = None,
+            acts_count_overlap: Optional[int] = None
+    ):
+        """
+        Write this dataset to a text file used by Transformers NER recipe.
+        Optionally, split the original conversations into smaller chunks with
+        `acts_count_per_sample` dialog acts in each sample, and
+        `acts_count_overlap` dialog acts overlap between samples in each call.
+        """
         with open(path, 'w') as f:
-            for call in tqdm(self.calls):
-                lines = to_transformers_ner_dataset(call, special_symbols=self.special_symbols())
-                for line in lines:
-                    print(line, file=f)
-                print(file=f)
+            for call in tqdm(self.calls, desc='Calls'):
+                call_windows = prepare_call_windows(
+                    call=call,
+                    acts_count_per_sample=acts_count_per_sample,
+                    acts_count_overlap=acts_count_overlap,
+                )
+                for window in tqdm(call_windows, desc='Windows (if requested)'):
+                    lines = to_transformers_ner_dataset(window, special_symbols=self.special_symbols())
+                    for line in lines:
+                        print(line, file=f)
+                    print(file=f)
 
     def to_transformers_ner_format(
             self,
@@ -223,6 +239,31 @@ class Call(list):
             displacy.render(doc, style="ent", jupyter=True, options=displacy_opts)
 
             spk = speakers[spk]
+
+
+def prepare_call_windows(
+        call: Call,
+        acts_count_per_sample: Optional[int],
+        acts_count_overlap: Optional[int],
+) -> List[Call]:
+    call_windowing = acts_count_per_sample is not None and acts_count_overlap is not None
+    if call_windowing:
+        step_size = acts_count_per_sample - acts_count_overlap
+        indices = []
+        for begin in range(0, len(call), step_size):
+            end = begin + acts_count_per_sample
+            if end > len(call):
+                step_back = end - len(call)
+                rng = (begin - step_back, end - step_back)
+                if len(indices) and rng != indices[-1]:
+                    indices.append(rng)
+                break
+            indices.append((begin, end))
+        # Handle the final window - if it's shorter, extend its beginning (more overlap but simpler to work with)
+        call_windows = [call[b: e] for b, e in indices]
+    else:
+        call_windows = [call]
+    return call_windows
 
 
 class FunctionalSegment(NamedTuple):
