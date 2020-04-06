@@ -8,7 +8,6 @@ import numpy as np
 import torch
 from allennlp.modules.conditional_random_field import ConditionalRandomField, allowed_transitions
 from seqeval.metrics import precision_score, recall_score, f1_score, accuracy_score
-from torch.multiprocessing import Pool
 from torch.nn.modules.loss import CrossEntropyLoss
 from tqdm import tqdm
 from transformers import AutoConfig, AutoTokenizer, AutoModelForTokenClassification
@@ -19,14 +18,14 @@ __all__ = ['TransformerModel']
 
 
 class TransformerModel:
-    def __init__(self, model_dir: Path):
+    def __init__(self, model_dir: Path, device: str = 'cpu'):
         self.model_dir = model_dir
         self.config = AutoConfig.from_pretrained(model_dir)
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_dir,
             **json.load(open(Path(model_dir) / 'tokenizer_config.json'))
         )
-        self.model = AutoModelForTokenClassification.from_pretrained(model_dir).to('cpu').eval()
+        self.model = AutoModelForTokenClassification.from_pretrained(model_dir).to(device).eval()
 
         # TODO: We are optionally using a CRF just for constraints on possible transitions between tags
         #       We might eventually train the CRF transition probs along with the model;
@@ -47,7 +46,7 @@ class TransformerModel:
     def predict(
             self,
             dataset: SwdaDataset,
-            num_jobs: int = 1,
+            batch_size: int = 1,
             forced_max_len: Optional[int] = None,
             crf_decoding: bool = False
     ) -> Dict[str, Any]:
@@ -59,18 +58,19 @@ class TransformerModel:
             tokenizer=self.tokenizer,
             max_seq_length=max_len,
             model_type=self.config.model_type,
-            batch_size=1,
+            batch_size=batch_size,
             labels=self.config.label2id.keys()
         )
 
-        self.model.share_memory()
-        with Pool(processes=num_jobs) as pool:
-            eval_losses, logits, out_label_ids = zip(*list(
-                pool.map(
-                    partial(predict_batch, model=self.model, config=self.config),
-                    tqdm(dataloader, desc='Predicting dialog acts')
-                )
-            ))
+        eval_losses, logits, out_label_ids = zip(*list(tqdm(
+            map(
+                partial(predict_batch, model=self.model, config=self.config),
+                dataloader
+            ),
+            desc=f'Predicting dialog acts (batches of {batch_size})',
+            leave=False
+        )))
+
         out_label_ids = np.concatenate(out_label_ids, axis=0)
         logits = np.concatenate(logits, axis=0)
         if crf_decoding:
@@ -122,7 +122,7 @@ def predictions_to_dataset(original_dataset: SwdaDataset, predictions: List[List
     # Does some possibly unnecessary back-and-forth, but gets the job done!
     with NamedTemporaryFile('w+') as f:
         for call, pred_tags in zip(original_dataset.calls, predictions):
-            lines = to_transformers_ner_dataset(call, special_symbols=original_dataset.special_symbols())
+            lines = to_transformers_ner_dataset(call)
             words, tags = zip(*[l.split() for l in lines])
             for w, t in zip(words, pred_tags):
                 print(f'{w} {t}', file=f)

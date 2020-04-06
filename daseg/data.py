@@ -4,11 +4,10 @@ Utilities for retrieving, manipulating and storing the dialog act data.
 import random
 import re
 from itertools import groupby, chain
-from typing import NamedTuple, Tuple, List, FrozenSet, Iterable, Dict, AbstractSet, Optional, Callable
+from typing import NamedTuple, Tuple, List, FrozenSet, Iterable, Dict, Optional, Callable
 
 import torch
 from spacy import displacy
-from spacy.symbols import ORTH
 from spacy.tokens.doc import Doc
 from spacy.tokens.span import Span
 from swda import Transcript, CorpusReader
@@ -17,7 +16,7 @@ from torch.utils.data import TensorDataset, SequentialSampler, DataLoader
 from tqdm import tqdm
 from transformers import PreTrainedTokenizer
 
-from daseg.resources import DIALOG_ACTS, COLORMAP, get_nlp, get_tokenizer
+from daseg.resources import DIALOG_ACTS, COLORMAP, get_nlp
 
 __all__ = ['FunctionalSegment', 'Call', 'SwdaDataset']
 
@@ -124,8 +123,8 @@ class SwdaDataset:
                     acts_count_per_sample=acts_count_per_sample,
                     acts_count_overlap=acts_count_overlap,
                 )
-                for window in tqdm(call_windows, desc='Windows (if requested)'):
-                    lines = to_transformers_ner_dataset(window, special_symbols=self.special_symbols())
+                for window in tqdm(call_windows, desc='Windows (if requested)', leave=False):
+                    lines = to_transformers_ner_dataset(window)
                     for line in lines:
                         print(line, file=f)
                     print(file=f)
@@ -154,7 +153,7 @@ class SwdaDataset:
         ner_examples = []
         for idx, call in enumerate(self.calls):
             # This does some unnecessary back-and-forth but it's convenient
-            lines = to_transformers_ner_dataset(call, special_symbols=self.special_symbols())
+            lines = to_transformers_ner_dataset(call)
             words, tags = zip(*[l.split() for l in lines])
             ner_examples.append(InputExample(guid=idx, words=words, labels=tags))
 
@@ -332,26 +331,17 @@ Transformers IO specific methods.
 """
 
 
-def to_transformers_ner_dataset(
-        call: List,
-        special_symbols: AbstractSet[str],
-        use_spacy_tokenizer: bool = False
-) -> List[str]:
+def to_transformers_ner_dataset(call: List) -> List[str]:
     """
     Convert a list of functional segments into text representations,
     used by the Transformers library to train NER models.
     """
-    # TODO: possibly remove spacy tokenizer altogether, it's redundant with transformers tokenizers
-    tokenizer = get_tokenizer()
-    # Avoid spacy tokenizations of the sort <my-token> -> < my - token >
-    for sym in special_symbols:
-        tokenizer.add_special_case(sym, [{ORTH: sym}])
     lines = []
     prev_spk = None
     prev_tag = {'A': None, 'B': None}
     for utt, tag, who, is_continuation in call:
         tag = '-'.join(tag.split()) if tag is not None else tag
-        tokens = [tok for tok in tokenizer(utt)] if use_spacy_tokenizer else utt.split()
+        tokens = utt.split()
         if tag is None:
             labels = [BLANK] * len(tokens)
         elif is_continuation:
