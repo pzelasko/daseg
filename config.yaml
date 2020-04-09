@@ -6,8 +6,8 @@ intraop_threads: 1
 data:
   swda_path: 'deps/swda/swda'
   text_path: 'deps/transformers/examples/ner'
-  dialog_acts_per_window: 50
-  dialog_acts_overlap: 3
+  dialog_acts_per_window:  # None
+  dialog_acts_overlap:  # None
 
 model:
   path: '/home/pzelasko/daseg/deps/transformers/examples/ner/xlnet-t46-textnorm'

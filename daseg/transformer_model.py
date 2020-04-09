@@ -2,11 +2,10 @@ import json
 from functools import partial
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional, List, Tuple
 
 import numpy as np
 import torch
-from allennlp.modules.conditional_random_field import ConditionalRandomField, allowed_transitions
 from seqeval.metrics import precision_score, recall_score, f1_score, accuracy_score
 from torch.nn.modules.loss import CrossEntropyLoss
 from tqdm import tqdm
@@ -27,29 +26,15 @@ class TransformerModel:
         )
         self.model = AutoModelForTokenClassification.from_pretrained(model_dir).to(device).eval()
 
-        # TODO: We are optionally using a CRF just for constraints on possible transitions between tags
-        #       We might eventually train the CRF transition probs along with the model;
-        #       Currently, they have equal an likelihood mass.
-        id2label = self.model.config.id2label
-        self.crf = ConditionalRandomField(
-            num_tags=len(id2label),
-            constraints=allowed_transitions(
-                constraint_type='IOB1',
-                labels=id2label
-            )
-        )
-        self.crf.transitions = torch.nn.Parameter(torch.ones(self.crf.transitions.shape), requires_grad=False)
-        self.crf.start_transitions = torch.nn.Parameter(torch.ones(self.crf.start_transitions.shape),
-                                                        requires_grad=False)
-        self.crf.end_transitions = torch.nn.Parameter(torch.ones(self.crf.end_transitions.shape), requires_grad=False)
-
     def predict(
             self,
             dataset: SwdaDataset,
             batch_size: int = 1,
             forced_max_len: Optional[int] = None,
-            crf_decoding: bool = False
+            window_len: Optional[int] = None,
+            window_overlap: Optional[int] = None
     ) -> Dict[str, Any]:
+        # TODO: rework to leverage XLNet sequential decoding
         max_len = forced_max_len if forced_max_len is not None else 2 * max(len(c.words()) for c in dataset.calls)
         # TODO: max len should be more bc of tokenization, for now 2 * is a heuristic...
         labels = list(self.config.label2id.keys())
@@ -64,7 +49,13 @@ class TransformerModel:
 
         eval_losses, logits, out_label_ids = zip(*list(tqdm(
             map(
-                partial(predict_batch, model=self.model, config=self.config),
+                partial(
+                    predict_batch_in_windows,
+                    model=self.model,
+                    config=self.config,
+                    window_len=window_len,
+                    window_overlap=window_overlap
+                ),
                 dataloader
             ),
             desc=f'Predicting dialog acts (batches of {batch_size})',
@@ -73,10 +64,11 @@ class TransformerModel:
 
         out_label_ids = np.concatenate(out_label_ids, axis=0)
         logits = np.concatenate(logits, axis=0)
-        if crf_decoding:
-            preds, lls = zip(*self.crf.viterbi_tags(torch.from_numpy(logits)))
-        else:
-            preds = np.argmax(logits, axis=2)
+        # TODO: incorporate trained CRF
+        # if crf_decoding:
+        #     preds, lls = zip(*self.model.crf.viterbi_tags(torch.from_numpy(logits)))
+        # else:
+        preds = np.argmax(logits, axis=2)
 
         pad_token_label_id = CrossEntropyLoss().ignore_index
         label_map = {i: label for i, label in enumerate(labels)}
@@ -105,17 +97,45 @@ class TransformerModel:
         return results
 
 
-def predict_batch(batch, model, config):
+def predict_batch_in_windows(
+        batch: Tuple[torch.Tensor],
+        model,
+        config,
+        window_len: Optional[int] = None,
+        window_overlap: Optional[int] = None
+):
+    if window_overlap is not None:
+        raise ValueError("Overlapping windows processing not implemented.")
+    else:
+        window_overlap = 0
+
     batch = tuple(t.to('cpu') for t in batch)
+
+    if window_len is None:
+        windows = [batch]
+    else:
+        maxlen = batch[0].shape[1]
+        window_shift = window_len - window_overlap
+        windows = [[t[:, i: i + window_len].contiguous() for t in batch] for i in range(0, maxlen, window_shift)]
+
+    tmp_eval_loss, logits = [], []
+
+    # TODO: figure out the mems thing
+    # mems = None
     with torch.no_grad():
-        inputs = {"input_ids": batch[0], "attention_mask": batch[1], "labels": batch[3]}
-        if config.model_type != "distilbert":
-            inputs["token_type_ids"] = (
-                batch[2] if config.model_type in ["bert", "xlnet"] else None
-            )  # XLM and RoBERTa don't use segment_ids
-        outputs = model(**inputs)
-        tmp_eval_loss, logits = outputs[:2]
-    return tmp_eval_loss, logits.detach().cpu().numpy(), inputs["labels"].detach().cpu().numpy()
+        for window in tqdm(windows, leave=False, desc='Traversing batch in windows'):
+            inputs = {"input_ids": window[0], "attention_mask": window[1], "labels": window[3]}
+            if config.model_type != "distilbert":
+                inputs["token_type_ids"] = (
+                    window[2] if config.model_type in ["bert", "xlnet"] else None
+                )  # XLM and RoBERTa don't use segment_ids
+            # if config.model_type == 'xlnet':
+            #     inputs['mems'] = mems
+            outputs = model(**inputs)
+            tmp_eval_loss.append(outputs[0])
+            logits.append(outputs[1].detach().cpu().numpy())
+            # mems = outputs[2]
+    return sum(tmp_eval_loss), np.concatenate(logits, axis=1), batch[3].detach().cpu().numpy()
 
 
 def predictions_to_dataset(original_dataset: SwdaDataset, predictions: List[List[str]]) -> SwdaDataset:

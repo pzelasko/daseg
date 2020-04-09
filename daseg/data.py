@@ -21,7 +21,7 @@ from daseg.resources import DIALOG_ACTS, COLORMAP, get_nlp
 __all__ = ['FunctionalSegment', 'Call', 'SwdaDataset']
 
 # Symbol used in SWDA to indicate that the dialog act is the same as in previous turn
-from deps.transformers.examples.ner.utils_ner import InputExample, convert_examples_to_features
+from daseg.utils_ner import InputExample, convert_examples_to_features
 
 CONTINUATION = '+'
 
@@ -149,6 +149,7 @@ class SwdaDataset:
             every label - then use this arg to supply the full list of labels
         :return: PyTorch DataLoader
         """
+        # tokenizer.add_special_tokens({'additional_special_tokens': [NEW_TURN]})
 
         ner_examples = []
         for idx, call in enumerate(self.calls):
@@ -199,7 +200,7 @@ class SwdaDataset:
 
 
 class Call(list):
-    def words(self, add_turn_token: bool = True):
+    def words(self, add_turn_token: bool = True) -> List[str]:
         ws = [w for seg in self for w in seg.text.split() + ([NEW_TURN] if add_turn_token else [])]
         if add_turn_token:
             ws = ws[:-1]
