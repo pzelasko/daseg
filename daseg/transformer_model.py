@@ -9,7 +9,7 @@ import torch
 from seqeval.metrics import precision_score, recall_score, f1_score, accuracy_score
 from torch.nn.modules.loss import CrossEntropyLoss
 from tqdm import tqdm
-from transformers import AutoConfig, AutoTokenizer, AutoModelForTokenClassification
+from transformers import AutoTokenizer, AutoModelForTokenClassification
 
 from daseg.data import SwdaDataset, to_transformers_ner_dataset
 
@@ -19,12 +19,17 @@ __all__ = ['TransformerModel']
 class TransformerModel:
     def __init__(self, model_dir: Path, device: str = 'cpu'):
         self.model_dir = model_dir
-        self.config = AutoConfig.from_pretrained(model_dir)
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_dir,
             **json.load(open(Path(model_dir) / 'tokenizer_config.json'))
         )
         self.model = AutoModelForTokenClassification.from_pretrained(model_dir).to(device).eval()
+        if self.config.model_type == 'xlnet':
+            self.config.output_past = True
+
+    @property
+    def config(self):
+        return self.model.config
 
     def predict(
             self,
@@ -34,7 +39,7 @@ class TransformerModel:
             window_len: Optional[int] = None,
             window_overlap: Optional[int] = None
     ) -> Dict[str, Any]:
-        # TODO: rework to leverage XLNet sequential decoding
+        self.config.mem_len = window_len
         max_len = forced_max_len if forced_max_len is not None else 2 * max(len(c.words()) for c in dataset.calls)
         # TODO: max len should be more bc of tokenization, for now 2 * is a heuristic...
         labels = list(self.config.label2id.keys())
@@ -120,21 +125,24 @@ def predict_batch_in_windows(
 
     tmp_eval_loss, logits = [], []
 
-    # TODO: figure out the mems thing
-    # mems = None
+    mems = None
     with torch.no_grad():
         for window in tqdm(windows, leave=False, desc='Traversing batch in windows'):
+            # Construct the input according to specific Transformer model
             inputs = {"input_ids": window[0], "attention_mask": window[1], "labels": window[3]}
             if config.model_type != "distilbert":
                 inputs["token_type_ids"] = (
                     window[2] if config.model_type in ["bert", "xlnet"] else None
                 )  # XLM and RoBERTa don't use segment_ids
-            # if config.model_type == 'xlnet':
-            #     inputs['mems'] = mems
+            if config.model_type == 'xlnet' and config.output_past:
+                inputs['mems'] = mems
+            # Compute
             outputs = model(**inputs)
+            # Consume the outputs according to a specific model
             tmp_eval_loss.append(outputs[0])
             logits.append(outputs[1].detach().cpu().numpy())
-            # mems = outputs[2]
+            if config.model_type == 'xlnet' and config.output_past:
+                mems = outputs[2]
     return sum(tmp_eval_loss), np.concatenate(logits, axis=1), batch[3].detach().cpu().numpy()
 
 
