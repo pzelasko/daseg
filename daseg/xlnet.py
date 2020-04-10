@@ -1,3 +1,5 @@
+from typing import Optional
+
 import torch
 from allennlp.modules import ConditionalRandomField
 from allennlp.modules.conditional_random_field import allowed_transitions
@@ -27,6 +29,12 @@ class XLNetCRFForTokenClassification(XLNetPreTrainedModel):
             ),
         )
         self.init_weights()
+
+    def set_memory(self, mem_len: Optional[int]):
+        self.transformer.mem_len = mem_len
+        self.transformer.config.mem_len = mem_len
+        self.transformer.output_past = mem_len is not None
+        self.transformer.config.output_past = mem_len is not None
 
     @add_start_docstrings_to_callable(XLNET_INPUTS_DOCSTRING)
     def forward(

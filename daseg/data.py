@@ -17,6 +17,7 @@ from tqdm import tqdm
 from transformers import PreTrainedTokenizer
 
 from daseg.resources import DIALOG_ACTS, COLORMAP, get_nlp
+from daseg.splits import SWDA_SPLITS
 
 __all__ = ['FunctionalSegment', 'Call', 'SwdaDataset']
 
@@ -45,9 +46,18 @@ class SwdaDataset:
         self.dialogues = dialogues
 
     @staticmethod
-    def from_path(swda_path: str) -> 'SwdaDataset':
+    def from_path(swda_path: str, splits=('train', 'dev', 'test')) -> 'SwdaDataset':
         cr = CorpusReader(swda_path)
-        dialogues = dict(map(parse_transcript, cr.iter_transcripts()))
+        selected_calls = frozenset(chain.from_iterable(SWDA_SPLITS[split] for split in splits))
+        dialogues = dict(
+            map(
+                parse_transcript,
+                filter(
+                    lambda tr: decode_swda_id(tr) in selected_calls,
+                    cr.iter_transcripts()
+                )
+            )
+        )
         return SwdaDataset(dialogues)
 
     @staticmethod
@@ -97,12 +107,12 @@ class SwdaDataset:
         }
 
     def train_dev_test_split(self) -> Dict[str, 'SwdaDataset']:
-        from daseg.splits import train_set_idx, valid_set_idx, test_set_idx
-        return {
-            'train': self.subset(train_set_idx),
-            'dev': self.subset(valid_set_idx),
-            'test': self.subset(test_set_idx)
-        }
+        return {name: self.subset(indices) for name, indices in SWDA_SPLITS.items()}
+
+    def subset(self, selected_ids: Iterable[str]) -> 'SwdaDataset':
+        selected_ids = set(selected_ids)
+        dialogues = {call_id: segments for call_id, segments in self.dialogues.items() if call_id in selected_ids}
+        return SwdaDataset(dialogues)
 
     def dump_for_transformers_ner(
             self,
@@ -143,10 +153,8 @@ class SwdaDataset:
         :param max_seq_length: self-explanatory
         :param model_type: string describing Transformers model type (e.g. xlnet, xlmroberta, bert, ...)
         :param batch_size: self-explanatory
-        :param labels: By default not required,
-            but you might run into problems if this is a subset of a
-            larger dataset which doesn't cover
-            every label - then use this arg to supply the full list of labels
+        :param labels: you might run into problems if this is a subset of larger dataset which doesn't cover every label
+            - use this arg to supply the full list of labels
         :return: PyTorch DataLoader
         """
         # tokenizer.add_special_tokens({'additional_special_tokens': [NEW_TURN]})
@@ -192,11 +200,6 @@ class SwdaDataset:
         )
 
         return dataloader
-
-    def subset(self, selected_ids: Iterable[str]) -> 'SwdaDataset':
-        selected_ids = set(selected_ids)
-        dialogues = {call_id: segments for call_id, segments in self.dialogues.items() if call_id in selected_ids}
-        return SwdaDataset(dialogues)
 
 
 class Call(list):

@@ -1,14 +1,16 @@
 import json
 from functools import partial
+from itertools import chain
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any, Dict, Optional, List, Tuple
 
 import numpy as np
+import sklearn.metrics as sklmetrics
 import torch
 from seqeval.metrics import precision_score, recall_score, f1_score, accuracy_score
 from torch.nn.modules.loss import CrossEntropyLoss
-from tqdm import tqdm
+from tqdm.autonotebook import tqdm
 from transformers import AutoTokenizer, AutoModelForTokenClassification
 
 from daseg.data import SwdaDataset, to_transformers_ner_dataset
@@ -24,8 +26,6 @@ class TransformerModel:
             **json.load(open(Path(model_dir) / 'tokenizer_config.json'))
         )
         self.model = AutoModelForTokenClassification.from_pretrained(model_dir).to(device).eval()
-        if self.config.model_type == 'xlnet':
-            self.config.output_past = True
 
     @property
     def config(self):
@@ -35,13 +35,21 @@ class TransformerModel:
             self,
             dataset: SwdaDataset,
             batch_size: int = 1,
-            forced_max_len: Optional[int] = None,
             window_len: Optional[int] = None,
-            window_overlap: Optional[int] = None
+            window_overlap: Optional[int] = None,
+            crf_decoding: bool = False
     ) -> Dict[str, Any]:
-        self.config.mem_len = window_len
-        max_len = forced_max_len if forced_max_len is not None else 2 * max(len(c.words()) for c in dataset.calls)
-        # TODO: max len should be more bc of tokenization, for now 2 * is a heuristic...
+        # TODO:
+        # if self.config.model_type == 'xlnet':
+        #     self.model.set_memory(window_len)
+
+        # Tokenize just to find what's the maximum length after tokenization
+        tok_results = self.tokenizer.batch_encode_plus(
+            [' '.join(c.words(add_turn_token=True)) for c in dataset.calls],
+            return_input_lengths=True
+        )
+        max_len = max(tok_results['input_len'])
+
         labels = list(self.config.label2id.keys())
 
         dataloader = dataset.to_transformers_ner_format(
@@ -69,11 +77,10 @@ class TransformerModel:
 
         out_label_ids = np.concatenate(out_label_ids, axis=0)
         logits = np.concatenate(logits, axis=0)
-        # TODO: incorporate trained CRF
-        # if crf_decoding:
-        #     preds, lls = zip(*self.model.crf.viterbi_tags(torch.from_numpy(logits)))
-        # else:
-        preds = np.argmax(logits, axis=2)
+        if crf_decoding and hasattr(self.model, 'crf'):
+            preds, lls = zip(*self.model.crf.viterbi_tags(torch.from_numpy(logits)))
+        else:
+            preds = np.argmax(logits, axis=2)
 
         pad_token_label_id = CrossEntropyLoss().ignore_index
         label_map = {i: label for i, label in enumerate(labels)}
@@ -87,15 +94,29 @@ class TransformerModel:
                     out_label_list[i].append(label_map[out_label_ids[i][j]])
                     preds_list[i].append(label_map[preds[i][j]])
 
+        flatten = lambda x: list(chain.from_iterable(x))
+        fp = flatten(preds_list)
+        fl = flatten(out_label_list)
         results = {
             "losses": np.array(eval_losses),
             "predictions": preds_list,
             "logits": logits,
             "true_labels": out_label_list,
-            "precision": precision_score(out_label_list, preds_list),
-            "recall": recall_score(out_label_list, preds_list),
-            "f1": f1_score(out_label_list, preds_list),
-            "accuracy": accuracy_score(out_label_list, preds_list),
+            "seqeval_metrics": {
+                "precision": precision_score(out_label_list, preds_list),
+                "recall": recall_score(out_label_list, preds_list),
+                "f1": f1_score(out_label_list, preds_list),
+                "accuracy": accuracy_score(out_label_list, preds_list),
+            },
+            "sklearn_metrics": {
+                "micro_precision": sklmetrics.precision_score(fl, fp, average='micro'),
+                "micro_recall": sklmetrics.recall_score(fl, fp, average='micro'),
+                "micro_f1": sklmetrics.f1_score(fl, fp, average='micro'),
+                "macro_precision": sklmetrics.precision_score(fl, fp, average='macro'),
+                "macro_recall": sklmetrics.recall_score(fl, fp, average='macro'),
+                "macro_f1": sklmetrics.f1_score(fl, fp, average='macro'),
+                "accuracy": sklmetrics.accuracy_score(fl, fp),
+            },
             "dataset": predictions_to_dataset(dataset, preds_list)
         }
 
@@ -113,6 +134,9 @@ def predict_batch_in_windows(
         raise ValueError("Overlapping windows processing not implemented.")
     else:
         window_overlap = 0
+
+    use_xlnet_memory = (config.model_type == 'xlnet' and config.output_past
+                        and config.mem_len is not None and config.mem_len > 0)
 
     batch = tuple(t.to('cpu') for t in batch)
 
@@ -134,14 +158,14 @@ def predict_batch_in_windows(
                 inputs["token_type_ids"] = (
                     window[2] if config.model_type in ["bert", "xlnet"] else None
                 )  # XLM and RoBERTa don't use segment_ids
-            if config.model_type == 'xlnet' and config.output_past:
+            if use_xlnet_memory:
                 inputs['mems'] = mems
             # Compute
             outputs = model(**inputs)
             # Consume the outputs according to a specific model
             tmp_eval_loss.append(outputs[0])
             logits.append(outputs[1].detach().cpu().numpy())
-            if config.model_type == 'xlnet' and config.output_past:
+            if use_xlnet_memory:
                 mems = outputs[2]
     return sum(tmp_eval_loss), np.concatenate(logits, axis=1), batch[3].detach().cpu().numpy()
 
