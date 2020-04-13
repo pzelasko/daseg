@@ -584,6 +584,8 @@ def main():
         cache_dir=args.cache_dir if args.cache_dir else None,
         **tokenizer_args,
     )
+
+    # Make sure the tokenizer doesn't split the special turn symbol
     tokenizer.add_special_tokens({'additional_special_tokens': NEW_TURN})
 
     model = load_model(args, config)

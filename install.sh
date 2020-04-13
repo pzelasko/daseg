@@ -36,3 +36,10 @@ cd deps/allennlp
 git checkout v1.0-prerelease
 pip install -e .
 cd "$CWD"
+
+# Get Longformer
+git clone https://github.com/allenai/longformer deps/longformer
+cd deps/longformer
+sed -i 's/==.*//g' requirements.txt
+pip install -e .
+cd "$CWD"
