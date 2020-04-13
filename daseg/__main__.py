@@ -47,7 +47,7 @@ def test(cfg: DictConfig):
     dataset = SwdaDataset.from_path(
         utils.to_absolute_path(cfg.data.swda_path)
     ).train_dev_test_split()['test']
-    model = TransformerModel(utils.to_absolute_path(cfg.model.path))
+    model = TransformerModel.from_path(utils.to_absolute_path(cfg.model.path))
     results = model.predict(dataset, batch_size=4, window_len=512)
     for x in 'accuracy f1 precision recall'.split():
         logging.info(results[x], results[x])

@@ -3,15 +3,17 @@ from functools import partial
 from itertools import chain
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Any, Dict, Optional, List, Tuple
+from typing import Any, Dict, Optional, List, Tuple, Union
 
 import numpy as np
 import sklearn.metrics as sklmetrics
 import torch
 from seqeval.metrics import precision_score, recall_score, f1_score, accuracy_score
+from torch import nn
 from torch.nn.modules.loss import CrossEntropyLoss
+from torch.utils.data.dataloader import DataLoader
 from tqdm.autonotebook import tqdm
-from transformers import AutoTokenizer, AutoModelForTokenClassification
+from transformers import AutoTokenizer, AutoModelForTokenClassification, PreTrainedTokenizer
 
 from daseg.data import SwdaDataset, to_transformers_ner_dataset
 
@@ -19,13 +21,19 @@ __all__ = ['TransformerModel']
 
 
 class TransformerModel:
-    def __init__(self, model_dir: Path, device: str = 'cpu'):
-        self.model_dir = model_dir
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            model_dir,
-            **json.load(open(Path(model_dir) / 'tokenizer_config.json'))
+    @staticmethod
+    def from_path(model_dir: Path, device: str = 'cpu'):
+        return TransformerModel(
+            tokenizer=AutoTokenizer.from_pretrained(
+                model_dir,
+                **json.load(open(Path(model_dir) / 'tokenizer_config.json'))
+            ),
+            model=AutoModelForTokenClassification.from_pretrained(model_dir).to(device).eval()
         )
-        self.model = AutoModelForTokenClassification.from_pretrained(model_dir).to(device).eval()
+
+    def __init__(self, model: nn.Module, tokenizer: PreTrainedTokenizer):
+        self.tokenizer = tokenizer
+        self.model = model
 
     @property
     def config(self):
@@ -33,7 +41,7 @@ class TransformerModel:
 
     def predict(
             self,
-            dataset: SwdaDataset,
+            dataset: Union[SwdaDataset, DataLoader],
             batch_size: int = 1,
             window_len: Optional[int] = None,
             window_overlap: Optional[int] = None,
@@ -43,22 +51,24 @@ class TransformerModel:
         # if self.config.model_type == 'xlnet':
         #     self.model.set_memory(window_len)
 
-        # Tokenize just to find what's the maximum length after tokenization
-        tok_results = self.tokenizer.batch_encode_plus(
-            [' '.join(c.words(add_turn_token=True)) for c in dataset.calls],
-            return_input_lengths=True
-        )
-        max_len = max(tok_results['input_len'])
-
         labels = list(self.config.label2id.keys())
 
-        dataloader = dataset.to_transformers_ner_format(
-            tokenizer=self.tokenizer,
-            max_seq_length=max_len,
-            model_type=self.config.model_type,
-            batch_size=batch_size,
-            labels=self.config.label2id.keys()
-        )
+        if isinstance(dataset, SwdaDataset):
+            # Tokenize just to find what's the maximum length after tokenization
+            tok_results = self.tokenizer.batch_encode_plus(
+                [' '.join(c.words(add_turn_token=True)) for c in dataset.calls],
+                return_input_lengths=True
+            )
+            max_len = max(tok_results['input_len'])
+            dataloader = dataset.to_transformers_ner_format(
+                tokenizer=self.tokenizer,
+                max_seq_length=max_len,
+                model_type=self.config.model_type,
+                batch_size=batch_size,
+                labels=self.config.label2id.keys()
+            )
+        else:
+            dataloader = dataset
 
         eval_losses, logits, out_label_ids = zip(*list(tqdm(
             map(
