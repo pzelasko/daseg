@@ -252,7 +252,7 @@ def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""
     eval_dataloader = DataLoader(eval_dataset, sampler=eval_sampler, batch_size=args.eval_batch_size)
 
     # multi-gpu evaluate
-    if args.n_gpu > 1:
+    if args.n_gpu > 1 and not isinstance(model, torch.nn.DataParallel):
         model = torch.nn.DataParallel(model)
 
     # Eval!
@@ -532,7 +532,7 @@ def main():
 
     # Setup CUDA, GPU & distributed training
     if args.local_rank == -1 or args.no_cuda:
-        device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
+        device = torch.device("cuda:0" if torch.cuda.is_available() and not args.no_cuda else "cpu")
         args.n_gpu = 0 if args.no_cuda else torch.cuda.device_count()
     else:  # Initializes the distributed backend which will take care of sychronizing nodes/GPUs
         torch.cuda.set_device(args.local_rank)
@@ -584,11 +584,10 @@ def main():
         cache_dir=args.cache_dir if args.cache_dir else None,
         **tokenizer_args,
     )
-
-    # Make sure the tokenizer doesn't split the special turn symbol
-    tokenizer.add_special_tokens({'additional_special_tokens': NEW_TURN})
+    tokenizer.add_special_tokens({'additional_special_tokens': [NEW_TURN]})
 
     model = load_model(args, config)
+    model.resize_token_embeddings(len(tokenizer))
 
     if args.local_rank == 0:
         torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab
