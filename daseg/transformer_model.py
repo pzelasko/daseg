@@ -10,8 +10,10 @@ import sklearn.metrics as sklmetrics
 import torch
 from seqeval.metrics import precision_score, recall_score, f1_score, accuracy_score
 from torch import nn
+from torch.nn import DataParallel
 from torch.nn.modules.loss import CrossEntropyLoss
 from torch.utils.data.dataloader import DataLoader
+from tqdm import trange
 from tqdm.autonotebook import tqdm
 from transformers import AutoTokenizer, AutoModelForTokenClassification, PreTrainedTokenizer
 
@@ -28,15 +30,19 @@ class TransformerModel:
                 model_dir,
                 **json.load(open(Path(model_dir) / 'tokenizer_config.json'))
             ),
-            model=AutoModelForTokenClassification.from_pretrained(model_dir).to(device).eval()
+            model=AutoModelForTokenClassification.from_pretrained(model_dir),
+            device=device
         )
 
-    def __init__(self, model: nn.Module, tokenizer: PreTrainedTokenizer):
+    def __init__(self, model: nn.Module, tokenizer: PreTrainedTokenizer, device: str):
         self.tokenizer = tokenizer
-        self.model = model
+        self.model = model.to(device).eval()
+        self.device = device
 
     @property
     def config(self):
+        if isinstance(self.model, DataParallel):
+            return self.model.module.config
         return self.model.config
 
     def predict(
@@ -50,6 +56,8 @@ class TransformerModel:
         # TODO:
         # if self.config.model_type == 'xlnet':
         #     self.model.set_memory(window_len)
+
+        # TODO: cleanup the dataloader stuff
 
         labels = list(self.config.label2id.keys())
 
@@ -77,7 +85,8 @@ class TransformerModel:
                     model=self.model,
                     config=self.config,
                     window_len=window_len,
-                    window_overlap=window_overlap
+                    window_overlap=window_overlap,
+                    device=self.device
                 ),
                 dataloader
             ),
@@ -107,8 +116,10 @@ class TransformerModel:
         flatten = lambda x: list(chain.from_iterable(x))
         fp = flatten(preds_list)
         fl = flatten(out_label_list)
+        eval_losses = flatten(eval_losses)
         results = {
             "losses": np.array(eval_losses),
+            "loss": np.mean(eval_losses),
             "predictions": preds_list,
             "logits": logits,
             "true_labels": out_label_list,
@@ -127,8 +138,9 @@ class TransformerModel:
                 "macro_f1": sklmetrics.f1_score(fl, fp, average='macro'),
                 "accuracy": sklmetrics.accuracy_score(fl, fp),
             },
-            "dataset": predictions_to_dataset(dataset, preds_list)
         }
+        if not isinstance(dataset, DataLoader):
+            results["dataset"] = predictions_to_dataset(dataset, preds_list)
 
         return results
 
@@ -138,7 +150,8 @@ def predict_batch_in_windows(
         model,
         config,
         window_len: Optional[int] = None,
-        window_overlap: Optional[int] = None
+        window_overlap: Optional[int] = None,
+        device: str = 'cpu'
 ):
     if window_overlap is not None:
         raise ValueError("Overlapping windows processing not implemented.")
@@ -155,13 +168,16 @@ def predict_batch_in_windows(
     else:
         maxlen = batch[0].shape[1]
         window_shift = window_len - window_overlap
-        windows = [[t[:, i: i + window_len].contiguous() for t in batch] for i in range(0, maxlen, window_shift)]
+        windows = (
+            [t[:, i: i + window_len].contiguous().to(device) for t in batch]
+            for i in trange(0, maxlen, window_shift, leave=False, desc='Traversing batch in windows')
+        )
 
     tmp_eval_loss, logits = [], []
 
     mems = None
     with torch.no_grad():
-        for window in tqdm(windows, leave=False, desc='Traversing batch in windows'):
+        for window in windows:
             # Construct the input according to specific Transformer model
             inputs = {"input_ids": window[0], "attention_mask": window[1], "labels": window[3]}
             if config.model_type != "distilbert":
@@ -173,11 +189,11 @@ def predict_batch_in_windows(
             # Compute
             outputs = model(**inputs)
             # Consume the outputs according to a specific model
-            tmp_eval_loss.append(outputs[0])
+            tmp_eval_loss.extend(outputs[0].detach().cpu().numpy())
             logits.append(outputs[1].detach().cpu().numpy())
             if use_xlnet_memory:
                 mems = outputs[2]
-    return sum(tmp_eval_loss), np.concatenate(logits, axis=1), batch[3].detach().cpu().numpy()
+    return tmp_eval_loss, np.concatenate(logits, axis=1), batch[3].detach().cpu().numpy()
 
 
 def predictions_to_dataset(original_dataset: SwdaDataset, predictions: List[List[str]]) -> SwdaDataset:

@@ -110,7 +110,7 @@ class XLNetCRFForTokenClassification(XLNetPreTrainedModel):
 
         logits = self.classifier(sequence_output)
 
-        best_paths = self.crf.viterbi_tags(logits, attention_mask, top_k=1)
+        # best_paths = self.crf.viterbi_tags(logits, attention_mask, top_k=1)
 
         outputs = (logits,) + outputs[1:]  # Keep mems, hidden states, attentions if there are in it
         if labels is not None:
@@ -130,6 +130,6 @@ class XLNetCRFForTokenClassification(XLNetPreTrainedModel):
             labels[labels < 0] = 91
             crf_loss = -self.crf(logits, labels, attention_mask)
 
-            outputs = (loss + crf_loss,) + outputs + (best_paths,)
+            outputs = (loss, crf_loss) + outputs  # + (best_paths,)
 
-        return outputs  # return (loss), logits, (mems), (hidden states), (attentions), (best_paths)
+        return outputs  # return (ce_loss, crf_loss), logits, (mems), (hidden states), (attentions), (best_paths)

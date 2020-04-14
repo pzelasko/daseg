@@ -42,4 +42,7 @@ git clone https://github.com/allenai/longformer deps/longformer
 cd deps/longformer
 sed -i 's/==.*//g' requirements.txt
 pip install -e .
+wget https://ai2-s2-research.s3-us-west-2.amazonaws.com/longformer/longformer-base-4096.tar.gz
+tar xf longformer-base-4096.tar.gz
+rm longformer-base-4096.tar.gz
 cd "$CWD"

@@ -24,7 +24,7 @@ from typing import Optional
 
 import numpy as np
 import torch
-from seqeval.metrics import f1_score, precision_score, recall_score
+from longformer.longformer import LongformerConfig
 from torch.nn import CrossEntropyLoss
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, TensorDataset
 from torch.utils.data.distributed import DistributedSampler
@@ -33,14 +33,15 @@ from transformers import (
     ALL_PRETRAINED_MODEL_ARCHIVE_MAP,
     WEIGHTS_NAME,
     AdamW,
-    AutoConfig,
     AutoModelForTokenClassification,
     AutoTokenizer,
-    get_linear_schedule_with_warmup,
+    get_linear_schedule_with_warmup
 )
 from transformers.modeling_auto import MODEL_MAPPING
 
+from daseg import TransformerModel
 from daseg.data import NEW_TURN
+from daseg.longformer_model import LongformerForTokenClassification, LongformerCRFForTokenClassification
 from daseg.utils_ner import convert_examples_to_features, get_labels, read_examples_from_file
 from daseg.xlnet import XLNetCRFForTokenClassification
 
@@ -50,6 +51,8 @@ except ImportError:
     from tensorboardX import SummaryWriter
 
 logger = logging.getLogger(__name__)
+
+torch.set_num_interop_threads(4)
 
 ALL_MODELS = tuple(ALL_PRETRAINED_MODEL_ARCHIVE_MAP)
 MODEL_CLASSES = tuple(m.model_type for m in MODEL_MAPPING)
@@ -140,7 +143,8 @@ def train(args, train_dataset, model, tokenizer, labels, pad_token_label_id):
     if os.path.exists(args.model_name_or_path):
         # set global_step to gobal_step of last saved checkpoint from model path
         try:
-            global_step = int(args.model_name_or_path.split("-")[-1].split("/")[0])
+            global_step = int(
+                args.model_name_or_path.split("-")[-1].split("/")[0]) if 'checkpoint' in args.model_name_or_path else 0
         except ValueError:
             global_step = 0
         epochs_trained = global_step // (len(train_dataloader) // args.gradient_accumulation_steps)
@@ -151,7 +155,7 @@ def train(args, train_dataset, model, tokenizer, labels, pad_token_label_id):
         logger.info("  Continuing training from global step %d", global_step)
         logger.info("  Will skip the first %d steps in the first epoch", steps_trained_in_current_epoch)
 
-    tr_loss, logging_loss = 0.0, 0.0
+    tr_loss, tr_ce_loss, tr_crf_loss, logging_loss, logging_ce_loss, logging_crf_loss = [0.0] * 6
     model.zero_grad()
     train_iterator = trange(
         epochs_trained, int(args.num_train_epochs), desc="Epoch", disable=args.local_rank not in [-1, 0]
@@ -175,12 +179,17 @@ def train(args, train_dataset, model, tokenizer, labels, pad_token_label_id):
                 )  # XLM and RoBERTa don"t use segment_ids
 
             outputs = model(**inputs)
-            loss = outputs[0]  # model outputs are always tuple in pytorch-transformers (see doc)
+            ce_loss = outputs[0]  # model outputs are always tuple in pytorch-transformers (see doc)
+            crf_loss = outputs[1] if hasattr(model, 'crf') else torch.zeros_like(ce_loss).to(args.device)
 
             if args.n_gpu > 1:
-                loss = loss.mean()  # mean() to average on multi-gpu parallel training
+                ce_loss = ce_loss.mean()  # mean() to average on multi-gpu parallel training
+                crf_loss = crf_loss.mean()
             if args.gradient_accumulation_steps > 1:
-                loss = loss / args.gradient_accumulation_steps
+                ce_loss = ce_loss / args.gradient_accumulation_steps
+                crf_loss = crf_loss / args.gradient_accumulation_steps
+
+            loss = args.cross_entropy_loss_weight * ce_loss + args.crf_loss_weight * crf_loss
 
             if args.fp16:
                 with amp.scale_loss(loss, optimizer) as scaled_loss:
@@ -189,14 +198,16 @@ def train(args, train_dataset, model, tokenizer, labels, pad_token_label_id):
                 loss.backward()
 
             tr_loss += loss.item()
+            tr_ce_loss += ce_loss.item()
+            tr_crf_loss += crf_loss.item()
             if (step + 1) % args.gradient_accumulation_steps == 0:
                 if args.fp16:
                     torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), args.max_grad_norm)
                 else:
                     torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
 
-                scheduler.step()  # Update learning rate schedule
                 optimizer.step()
+                scheduler.step()  # Update learning rate schedule
                 model.zero_grad()
                 global_step += 1
 
@@ -210,7 +221,11 @@ def train(args, train_dataset, model, tokenizer, labels, pad_token_label_id):
                             tb_writer.add_scalar("eval_{}".format(key), value, global_step)
                     tb_writer.add_scalar("lr", scheduler.get_lr()[0], global_step)
                     tb_writer.add_scalar("loss", (tr_loss - logging_loss) / args.logging_steps, global_step)
+                    tb_writer.add_scalar("ce_loss", (ce_loss - logging_ce_loss) / args.logging_steps, global_step)
+                    tb_writer.add_scalar("crf_loss", (ce_loss - logging_crf_loss) / args.logging_steps, global_step)
                     logging_loss = tr_loss
+                    logging_ce_loss = tr_ce_loss
+                    logging_crf_loss = tr_crf_loss
 
                 if args.local_rank in [-1, 0] and args.save_steps > 0 and global_step % args.save_steps == 0:
                     # Save model checkpoint
@@ -245,9 +260,7 @@ def train(args, train_dataset, model, tokenizer, labels, pad_token_label_id):
 
 def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""):
     eval_dataset = load_and_cache_examples(args, tokenizer, labels, pad_token_label_id, mode=mode)
-
     args.eval_batch_size = args.per_gpu_eval_batch_size * max(1, args.n_gpu)
-    # Note that DistributedSampler samples randomly
     eval_sampler = SequentialSampler(eval_dataset) if args.local_rank == -1 else DistributedSampler(eval_dataset)
     eval_dataloader = DataLoader(eval_dataset, sampler=eval_sampler, batch_size=args.eval_batch_size)
 
@@ -255,65 +268,32 @@ def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""
     if args.n_gpu > 1 and not isinstance(model, torch.nn.DataParallel):
         model = torch.nn.DataParallel(model)
 
+    # Wrap the model into utility for prediction
+    daseg_model = TransformerModel(model=model, tokenizer=tokenizer, device='cuda')
+
     # Eval!
     logger.info("***** Running evaluation %s *****", prefix)
     logger.info("  Num examples = %d", len(eval_dataset))
     logger.info("  Batch size = %d", args.eval_batch_size)
-    eval_loss = 0.0
-    nb_eval_steps = 0
-    preds = None
-    out_label_ids = None
-    model.eval()
-    for batch in tqdm(eval_dataloader, desc="Evaluating"):
-        batch = tuple(t.to(args.device) for t in batch)
 
-        with torch.no_grad():
-            inputs = {"input_ids": batch[0], "attention_mask": batch[1], "labels": batch[3]}
-            if args.model_type != "distilbert":
-                inputs["token_type_ids"] = (
-                    batch[2] if args.model_type in ["bert", "xlnet"] else None
-                )  # XLM and RoBERTa don"t use segment_ids
-            outputs = model(**inputs)
-            tmp_eval_loss, logits = outputs[:2]
+    all_results = daseg_model.predict(
+        dataset=eval_dataloader,
+        batch_size=args.eval_batch_size,
+        window_len=args.eval_window_size,
+        crf_decoding=args.use_crf
+    )
 
-            if args.n_gpu > 1:
-                tmp_eval_loss = tmp_eval_loss.mean()  # mean() to average on multi-gpu parallel evaluating
-
-            eval_loss += tmp_eval_loss.item()
-        nb_eval_steps += 1
-        if preds is None:
-            preds = logits.detach().cpu().numpy()
-            out_label_ids = inputs["labels"].detach().cpu().numpy()
-        else:
-            preds = np.append(preds, logits.detach().cpu().numpy(), axis=0)
-            out_label_ids = np.append(out_label_ids, inputs["labels"].detach().cpu().numpy(), axis=0)
-
-    eval_loss = eval_loss / nb_eval_steps
-    preds = np.argmax(preds, axis=2)
-
-    label_map = {i: label for i, label in enumerate(labels)}
-
-    out_label_list = [[] for _ in range(out_label_ids.shape[0])]
-    preds_list = [[] for _ in range(out_label_ids.shape[0])]
-
-    for i in range(out_label_ids.shape[0]):
-        for j in range(out_label_ids.shape[1]):
-            if out_label_ids[i, j] != pad_token_label_id:
-                out_label_list[i].append(label_map[out_label_ids[i][j]])
-                preds_list[i].append(label_map[preds[i][j]])
-
-    results = {
-        "loss": eval_loss,
-        "precision": precision_score(out_label_list, preds_list),
-        "recall": recall_score(out_label_list, preds_list),
-        "f1": f1_score(out_label_list, preds_list),
+    flat_results = {
+        f'{grp}_{m}': v
+        for grp in ['seqeval_metrics', 'sklearn_metrics']
+        for m, v in all_results[grp].items()
     }
-
+    flat_results['loss'] = all_results['loss']
     logger.info("***** Eval results %s *****", prefix)
-    for key in sorted(results.keys()):
-        logger.info("  %s = %s", key, str(results[key]))
+    for key in sorted(flat_results.keys()):
+        logger.info("  %s = %s", key, str(flat_results[key]))
 
-    return results, preds_list
+    return flat_results, all_results['predictions']
 
 
 def load_and_cache_examples(args, tokenizer, labels, pad_token_label_id, mode):
@@ -506,8 +486,19 @@ def main():
     parser.add_argument("--server_port", type=str, default="", help="For distant debugging.")
 
     parser.add_argument("--use_crf", action='store_true', help="Will add a CRF layer on top Transformer.")
+    parser.add_argument('--cross_entropy_loss_weight', default=1.0, help='Weight of CE (per-token) loss for training')
+    parser.add_argument('--crf_loss_weight', default=1.0, help='Weight of CRF (whole sequence) loss for training')
+    parser.add_argument("--eval_window_size", default=None,
+                        help="When non-zero, will use windows inside batches for evaluation.")
+    parser.add_argument("--crf_over_windows", action='store_true',
+                        help="When specified, CRF will be performed over all windows predictions instead of "
+                             "over each window individually (works only with nonzero --eval_window_size).")
+    parser.add_argument('--use_longformer', action='store_true', help='Use the Longformer model (override others)')
 
     args = parser.parse_args()
+
+    if args.crf_over_windows:
+        raise NotImplementedError()
 
     if (
             os.path.exists(args.output_dir)
@@ -570,7 +561,14 @@ def main():
         torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab
 
     args.model_type = args.model_type.lower()
-    config = AutoConfig.from_pretrained(
+    # config = AutoConfig.from_pretrained(
+    #     args.config_name if args.config_name else args.model_name_or_path,
+    #     num_labels=num_labels,
+    #     id2label={str(i): label for i, label in enumerate(labels)},
+    #     label2id={label: i for i, label in enumerate(labels)},
+    #     cache_dir=args.cache_dir if args.cache_dir else None,
+    # )
+    config = LongformerConfig.from_pretrained(
         args.config_name if args.config_name else args.model_name_or_path,
         num_labels=num_labels,
         id2label={str(i): label for i, label in enumerate(labels)},
@@ -579,6 +577,7 @@ def main():
     )
     tokenizer_args = {k: v for k, v in vars(args).items() if v is not None and k in TOKENIZER_ARGS}
     logger.info("Tokenizer arguments: %s", tokenizer_args)
+
     tokenizer = AutoTokenizer.from_pretrained(
         args.tokenizer_name if args.tokenizer_name else args.model_name_or_path,
         cache_dir=args.cache_dir if args.cache_dir else None,
@@ -593,6 +592,8 @@ def main():
         torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab
 
     model.to(args.device)
+    if hasattr(model, 'crf'):
+        model.crf.to(args.device)
 
     logger.info("Training/evaluation parameters %s", args)
 
@@ -674,28 +675,22 @@ def main():
 
 
 def load_model(args, config, path: Optional[str] = None):
+    # TODO: clean this up
+    model_class = (
+        LongformerCRFForTokenClassification if (args.use_longformer and args.use_crf)
+        else LongformerForTokenClassification if args.use_longformer
+        else XLNetCRFForTokenClassification if args.use_crf
+        else AutoModelForTokenClassification
+    )
     if path is not None:
-        # TODO: for now we're only interested in XLNet
-        if args.use_crf:
-            model = XLNetCRFForTokenClassification.from_pretrained(path)
-        else:
-            model = AutoModelForTokenClassification.from_pretrained(path)
+        model = model_class.from_pretrained(path)
     else:
-        if args.use_crf:
-            # TODO: for now we're only interested in XLNet
-            model = XLNetCRFForTokenClassification.from_pretrained(
-                args.model_name_or_path,
-                from_tf=bool(".ckpt" in args.model_name_or_path),
-                config=config,
-                cache_dir=args.cache_dir if args.cache_dir else None,
-            )
-        else:
-            model = AutoModelForTokenClassification.from_pretrained(
-                args.model_name_or_path,
-                from_tf=bool(".ckpt" in args.model_name_or_path),
-                config=config,
-                cache_dir=args.cache_dir if args.cache_dir else None,
-            )
+        model = model_class.from_pretrained(
+            args.model_name_or_path,
+            from_tf=bool(".ckpt" in args.model_name_or_path),
+            config=config,
+            cache_dir=args.cache_dir if args.cache_dir else None,
+        )
     return model
 
 
