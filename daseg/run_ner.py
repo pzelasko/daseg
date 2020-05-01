@@ -16,13 +16,13 @@
 """ Fine-tuning the library models for named entity recognition on CoNLL-2003 (Bert or Roberta). """
 
 import argparse
-import glob
 import logging
 import os
-import random
 from typing import Optional
 
+import glob
 import numpy as np
+import random
 import torch
 from longformer.longformer import LongformerConfig
 from torch.nn import CrossEntropyLoss
@@ -189,7 +189,7 @@ def train(args, train_dataset, model, tokenizer, labels, pad_token_label_id):
                 ce_loss = ce_loss / args.gradient_accumulation_steps
                 crf_loss = crf_loss / args.gradient_accumulation_steps
 
-            loss = args.cross_entropy_loss_weight * ce_loss + args.crf_loss_weight * crf_loss
+            loss = args.ce_loss_weight * ce_loss + args.crf_loss_weight * crf_loss
 
             if args.fp16:
                 with amp.scale_loss(loss, optimizer) as scaled_loss:
@@ -486,8 +486,9 @@ def main():
     parser.add_argument("--server_port", type=str, default="", help="For distant debugging.")
 
     parser.add_argument("--use_crf", action='store_true', help="Will add a CRF layer on top Transformer.")
-    parser.add_argument('--cross_entropy_loss_weight', default=1.0, help='Weight of CE (per-token) loss for training')
-    parser.add_argument('--crf_loss_weight', default=1.0, help='Weight of CRF (whole sequence) loss for training')
+    parser.add_argument('--ce_loss_weight', default=1.0, type=float, help='Weight of CE (per-token) loss for training')
+    parser.add_argument('--crf_loss_weight', default=1.0, type=float,
+                        help='Weight of CRF (whole sequence) loss for training')
     parser.add_argument("--eval_window_size", default=None,
                         help="When non-zero, will use windows inside batches for evaluation.")
     parser.add_argument("--crf_over_windows", action='store_true',

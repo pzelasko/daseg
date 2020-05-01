@@ -1,11 +1,11 @@
 """
 Utilities for retrieving, manipulating and storing the dialog act data.
 """
-import random
 import re
 from itertools import groupby, chain
 from typing import NamedTuple, Tuple, List, FrozenSet, Iterable, Dict, Optional, Callable
 
+import random
 import torch
 from spacy import displacy
 from spacy.tokens.doc import Doc
@@ -209,7 +209,7 @@ class Call(list):
             ws = ws[:-1]
         return ws
 
-    def render(self, max_turns=None):
+    def render(self, max_turns=None, jupyter=True):
         """Render the call as annotated with dialog acts in a Jupyter notebook"""
 
         # Render DAs options
@@ -221,6 +221,7 @@ class Call(list):
         displacy_opts = {"colors": cmap}
 
         # Convert text to Doc
+        rendered_htmls = []
         speakers = {'A:': 'B:', 'B:': 'A:'}
         spk = 'A:'
         for turn_no, (key, group) in enumerate(groupby(self, key=lambda tpl: tpl[2])):
@@ -239,9 +240,10 @@ class Call(list):
                 begin = end
             doc.ents = ents
 
-            displacy.render(doc, style="ent", jupyter=True, options=displacy_opts)
+            rendered_htmls.append(displacy.render(doc, style="ent", jupyter=jupyter, options=displacy_opts))
 
             spk = speakers[spk]
+        return rendered_htmls
 
 
 def prepare_call_windows(

@@ -41,6 +41,7 @@ class LongformerCRFForTokenClassification(LongformerForTokenClassification):
         ce_loss = outputs[0]
         logits = outputs[1]
         if labels is not None:
+            # TODO: fix ugly label-set dependent hack
             labels[labels < 0] = 91
             crf_loss = -self.crf(logits, labels, attention_mask)
 

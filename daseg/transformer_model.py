@@ -78,7 +78,7 @@ class TransformerModel:
         else:
             dataloader = dataset
 
-        eval_losses, logits, out_label_ids = zip(*list(tqdm(
+        eval_ce_losses, eval_crf_losses, logits, out_label_ids = zip(*list(tqdm(
             map(
                 partial(
                     predict_batch_in_windows,
@@ -116,10 +116,13 @@ class TransformerModel:
         flatten = lambda x: list(chain.from_iterable(x))
         fp = flatten(preds_list)
         fl = flatten(out_label_list)
-        eval_losses = flatten(eval_losses)
+        eval_ce_losses = flatten(eval_ce_losses)
+        eval_crf_losses = flatten(eval_crf_losses)
         results = {
-            "losses": np.array(eval_losses),
-            "loss": np.mean(eval_losses),
+            "losses": np.array(eval_ce_losses),
+            "crf_losses": np.array(eval_crf_losses),
+            "loss": np.mean(eval_ce_losses),
+            "crf_loss": np.mean(eval_crf_losses),
             "predictions": preds_list,
             "logits": logits,
             "true_labels": out_label_list,
@@ -139,7 +142,7 @@ class TransformerModel:
                 "accuracy": sklmetrics.accuracy_score(fl, fp),
             },
         }
-        if not isinstance(dataset, DataLoader):
+        if isinstance(dataset, SwdaDataset):
             results["dataset"] = predictions_to_dataset(dataset, preds_list)
 
         return results
@@ -161,6 +164,8 @@ def predict_batch_in_windows(
     use_xlnet_memory = (config.model_type == 'xlnet' and config.output_past
                         and config.mem_len is not None and config.mem_len > 0)
 
+    has_crf = hasattr(model, 'crf') or (isinstance(model, DataParallel) and hasattr(model.module, 'crf'))
+
     batch = tuple(t.to('cpu') for t in batch)
 
     if window_len is None:
@@ -173,7 +178,7 @@ def predict_batch_in_windows(
             for i in trange(0, maxlen, window_shift, leave=False, desc='Traversing batch in windows')
         )
 
-    tmp_eval_loss, logits = [], []
+    ce_loss, crf_loss, logits = [], [], []
 
     mems = None
     with torch.no_grad():
@@ -188,12 +193,20 @@ def predict_batch_in_windows(
                 inputs['mems'] = mems
             # Compute
             outputs = model(**inputs)
+            batch_ce_loss = outputs[0]
+            batch_crf_loss = outputs[1] if has_crf else torch.zeros_like(batch_ce_loss)
+            batch_logits = outputs[2] if has_crf else outputs[1]
             # Consume the outputs according to a specific model
-            tmp_eval_loss.extend(outputs[0].detach().cpu().numpy())
-            logits.append(outputs[1].detach().cpu().numpy())
+            try:
+                ce_loss.extend(batch_ce_loss.detach().cpu().numpy())
+                crf_loss.extend(batch_crf_loss.detach().cpu().numpy())
+            except:
+                ce_loss.append(batch_ce_loss.detach().cpu().numpy())
+                crf_loss.append(batch_crf_loss.detach().cpu().numpy())
+            logits.append(batch_logits.detach().cpu().numpy())
             if use_xlnet_memory:
                 mems = outputs[2]
-    return tmp_eval_loss, np.concatenate(logits, axis=1), batch[3].detach().cpu().numpy()
+    return ce_loss, crf_loss, np.concatenate(logits, axis=1), batch[3].detach().cpu().numpy()
 
 
 def predictions_to_dataset(original_dataset: SwdaDataset, predictions: List[List[str]]) -> SwdaDataset:

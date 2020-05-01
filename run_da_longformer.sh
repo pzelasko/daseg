@@ -27,7 +27,7 @@ set -eou pipefail
 #python3 preprocess.py test.txt.tmp $BERT_MODEL_TOK $MAX_LENGTH > test.txt
 #cat train.txt dev.txt test.txt | cut -d " " -f 2 | grep -v "^$"| sort | uniq > labels.txt
 
-export BATCH_SIZE=2
+export BATCH_SIZE=1
 export NUM_EPOCHS=10
 export SAVE_STEPS=128  # approx once per epoch
 export SEED=1
@@ -42,7 +42,7 @@ python3 "${ROOT_DIR}"/daseg/run_ner.py \
 --max_seq_length  $MAX_LENGTH \
 --num_train_epochs $NUM_EPOCHS \
 --per_gpu_train_batch_size $BATCH_SIZE \
---per_gpu_eval_batch_size $BATCH_SIZE \
+--per_gpu_eval_batch_size 8 \
 --save_steps $SAVE_STEPS \
 --logging_steps $SAVE_STEPS \
 --seed $SEED \
@@ -52,6 +52,7 @@ python3 "${ROOT_DIR}"/daseg/run_ner.py \
 --do_predict \
 --use_longformer \
 --use_crf \
---fp16
+--crf_loss_weight 0.01
+#--fp16
 
 
