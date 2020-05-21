@@ -3,6 +3,7 @@ Utilities for retrieving, manipulating and storing the dialog act data.
 """
 import random
 import re
+from functools import partial
 from itertools import groupby, chain
 from typing import NamedTuple, Tuple, List, FrozenSet, Iterable, Dict, Optional, Callable
 
@@ -46,12 +47,16 @@ class SwdaDataset:
         self.dialogues = dialogues
 
     @staticmethod
-    def from_path(swda_path: str, splits=('train', 'dev', 'test')) -> 'SwdaDataset':
+    def from_path(
+            swda_path: str,
+            splits=('train', 'dev', 'test'),
+            strip_punctuation_and_lowercase: bool = False
+    ) -> 'SwdaDataset':
         cr = CorpusReader(swda_path)
         selected_calls = frozenset(chain.from_iterable(SWDA_SPLITS[split] for split in splits))
         dialogues = dict(
             map(
-                parse_transcript,
+                partial(parse_transcript, strip_punctuation_and_lowercase=strip_punctuation_and_lowercase),
                 filter(
                     lambda tr: decode_swda_id(tr) in selected_calls,
                     cr.iter_transcripts()
@@ -297,8 +302,8 @@ class FunctionalSegment(NamedTuple):
     is_continuation: bool = False
 
 
-def parse_transcript(swda_tr: Transcript) -> Tuple[str, Call]:
-    normalize_text = create_text_normalizer()
+def parse_transcript(swda_tr: Transcript, strip_punctuation_and_lowercase: bool = False) -> Tuple[str, Call]:
+    normalize_text = create_text_normalizer(strip_punctuation_and_lowercase)
     call_id = decode_swda_id(swda_tr)
     segments = (
         FunctionalSegment(
@@ -458,8 +463,8 @@ def read_transformers_preds(preds_path: str) -> 'SwdaDataset':
     return SwdaDataset({str(i): c for i, c in zip(range(1000000), resolved_calls)})
 
 
-def create_text_normalizer() -> Callable[[str], str]:
-    remove_patterns = tuple(map(
+def create_text_normalizer(strip_punctuation_and_lowercase: bool = False) -> Callable[[str], str]:
+    remove_patterns = list(map(
         re.compile,
         [
             r'<<[^>]*>>',  # <<talks to another person>>
@@ -472,8 +477,14 @@ def create_text_normalizer() -> Callable[[str], str]:
         ]
     ))
 
+    if strip_punctuation_and_lowercase:
+        remove_patterns.append(
+            re.compile(r'[!"#$%&()*+,./:;<=>?@\[\\\]^_`{|}~]')
+        )
+
     remove_leading_nontext = re.compile(r'^[^a-zA-Z]+([a-zA-Z])')
     correct_punctuation_whitespace = re.compile(r' ([.,?!])')
+    wild_dashes = re.compile(r'(\s-+\s|-+$)')
 
     def normalize(text: str) -> str:
         for p in remove_patterns:
@@ -481,6 +492,9 @@ def create_text_normalizer() -> Callable[[str], str]:
         text = text.split('*')[0].strip()  # Comments after asterisk
         text = remove_leading_nontext.sub(r'\1', text)  # ". . Hi again." => "Hi again."
         text = correct_punctuation_whitespace.sub(r'\1', text)  # "Hi Jack ." -> "Hi Jack."
+        if strip_punctuation_and_lowercase:
+            text = wild_dashes.sub(' ', text).strip()
+            text = text.lower()
         return text
 
     return normalize
