@@ -1,14 +1,12 @@
 import json
 from functools import partial
-from itertools import chain
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any, Dict, Optional, List, Tuple, Union
 
 import numpy as np
-import sklearn.metrics as sklmetrics
 import torch
-from seqeval.metrics import precision_score, recall_score, f1_score, accuracy_score
+from more_itertools import flatten
 from torch import nn
 from torch.nn import DataParallel
 from torch.nn.modules.loss import CrossEntropyLoss
@@ -20,6 +18,8 @@ from transformers import AutoTokenizer, AutoModelForTokenClassification, PreTrai
 from daseg.data import SwdaDataset, to_transformers_ner_dataset
 
 __all__ = ['TransformerModel']
+
+from daseg.metrics import compute_sklearn_metrics, compute_seqeval_metrics, compute_zhao_kawahara_metrics
 
 
 class TransformerModel:
@@ -113,9 +113,6 @@ class TransformerModel:
                     out_label_list[i].append(label_map[out_label_ids[i][j]])
                     preds_list[i].append(label_map[preds[i][j]])
 
-        flatten = lambda x: list(chain.from_iterable(x))
-        fp = flatten(preds_list)
-        fl = flatten(out_label_list)
         eval_ce_losses = flatten(eval_ce_losses)
         eval_crf_losses = flatten(eval_crf_losses)
         results = {
@@ -126,24 +123,14 @@ class TransformerModel:
             "predictions": preds_list,
             "logits": logits,
             "true_labels": out_label_list,
-            "seqeval_metrics": {
-                "precision": precision_score(out_label_list, preds_list),
-                "recall": recall_score(out_label_list, preds_list),
-                "f1": f1_score(out_label_list, preds_list),
-                "accuracy": accuracy_score(out_label_list, preds_list),
-            },
-            "sklearn_metrics": {
-                "micro_precision": sklmetrics.precision_score(fl, fp, average='micro'),
-                "micro_recall": sklmetrics.recall_score(fl, fp, average='micro'),
-                "micro_f1": sklmetrics.f1_score(fl, fp, average='micro'),
-                "macro_precision": sklmetrics.precision_score(fl, fp, average='macro'),
-                "macro_recall": sklmetrics.recall_score(fl, fp, average='macro'),
-                "macro_f1": sklmetrics.f1_score(fl, fp, average='macro'),
-                "accuracy": sklmetrics.accuracy_score(fl, fp),
-            },
+            "sklearn_metrics": compute_sklearn_metrics(out_label_list, preds_list),
+            "seqeval_metrics": compute_seqeval_metrics(out_label_list, preds_list)
         }
         if isinstance(dataset, SwdaDataset):
             results["dataset"] = predictions_to_dataset(dataset, preds_list)
+            results["zhao_kawahara_metrics"] = compute_zhao_kawahara_metrics(
+                true_dataset=dataset, pred_dataset=results['dataset']
+            )
 
         return results
 

@@ -1,11 +1,11 @@
 """
 Utilities for retrieving, manipulating and storing the dialog act data.
 """
+import random
 import re
 from itertools import groupby, chain
 from typing import NamedTuple, Tuple, List, FrozenSet, Iterable, Dict, Optional, Callable
 
-import random
 import torch
 from spacy import displacy
 from spacy.tokens.doc import Doc
@@ -118,7 +118,8 @@ class SwdaDataset:
             self,
             path: str,
             acts_count_per_sample: Optional[int] = None,
-            acts_count_overlap: Optional[int] = None
+            acts_count_overlap: Optional[int] = None,
+            continuations_allowed: bool = False,
     ):
         """
         Write this dataset to a text file used by Transformers NER recipe.
@@ -134,7 +135,7 @@ class SwdaDataset:
                     acts_count_overlap=acts_count_overlap,
                 )
                 for window in tqdm(call_windows, desc='Windows (if requested)', leave=False):
-                    lines = to_transformers_ner_dataset(window)
+                    lines = to_transformers_ner_dataset(window, continuations_allowed=continuations_allowed)
                     for line in lines:
                         print(line, file=f)
                     print(file=f)
@@ -202,12 +203,15 @@ class SwdaDataset:
         return dataloader
 
 
-class Call(list):
+class Call(List['FunctionalSegment']):
     def words(self, add_turn_token: bool = True) -> List[str]:
         ws = [w for seg in self for w in seg.text.split() + ([NEW_TURN] if add_turn_token else [])]
         if add_turn_token:
             ws = ws[:-1]
         return ws
+
+    def words_with_tags(self) -> List[Tuple[str, str]]:
+        return [(w, seg.dialog_act) for seg in self for w in seg.text.split()]
 
     def render(self, max_turns=None, jupyter=True):
         """Render the call as annotated with dialog acts in a Jupyter notebook"""
@@ -244,6 +248,21 @@ class Call(list):
 
             spk = speakers[spk]
         return rendered_htmls
+
+    @property
+    def turns(self) -> Iterable[Tuple[str, List['FunctionalSegment']]]:
+        for name, group in groupby(self, key=lambda fs: fs.speaker):
+            yield name, list(group)
+
+    def dialog_act_spans(self, include_label: bool = True) -> Iterable[Tuple[int, int, str]]:
+        idx = 0
+        for segment in self:
+            n_toks = len(segment.text.split())
+            if include_label:
+                yield idx, idx + n_toks, segment.dialog_act
+            else:
+                yield idx, idx + n_toks
+            idx += n_toks
 
 
 def prepare_call_windows(
@@ -337,7 +356,7 @@ Transformers IO specific methods.
 """
 
 
-def to_transformers_ner_dataset(call: List) -> List[str]:
+def to_transformers_ner_dataset(call: List, continuations_allowed: bool = False) -> List[str]:
     """
     Convert a list of functional segments into text representations,
     used by the Transformers library to train NER models.
@@ -350,7 +369,7 @@ def to_transformers_ner_dataset(call: List) -> List[str]:
         tokens = utt.split()
         if tag is None:
             labels = [BLANK] * len(tokens)
-        elif is_continuation:
+        elif continuations_allowed and is_continuation:
             labels = [f'{CONTINUE_TAG}{prev_tag[who]}'] * len(tokens)
         else:
             labels = [f'{BEGIN_TAG}{tag}'] + [f'{CONTINUE_TAG}{tag}'] * (len(tokens) - 1)
