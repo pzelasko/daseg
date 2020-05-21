@@ -113,8 +113,8 @@ class TransformerModel:
                     out_label_list[i].append(label_map[out_label_ids[i][j]])
                     preds_list[i].append(label_map[preds[i][j]])
 
-        eval_ce_losses = flatten(eval_ce_losses)
-        eval_crf_losses = flatten(eval_crf_losses)
+        eval_ce_losses = list(flatten(eval_ce_losses))
+        eval_crf_losses = list(flatten(eval_crf_losses))
         results = {
             "losses": np.array(eval_ce_losses),
             "crf_losses": np.array(eval_crf_losses),

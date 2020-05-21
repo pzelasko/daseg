@@ -11,8 +11,8 @@ from daseg import SwdaDataset
 
 
 def compute_sklearn_metrics(true_labels: List[List[str]], predictions: List[List[str]]):
-    fp = flatten(predictions)
-    fl = flatten(true_labels)
+    fp = list(flatten(predictions))
+    fl = list(flatten(true_labels))
     return {
         "micro_precision": sklmetrics.precision_score(fl, fp, average='micro'),
         "micro_recall": sklmetrics.recall_score(fl, fp, average='micro'),

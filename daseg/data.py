@@ -59,7 +59,7 @@ class SwdaDataset:
                 partial(parse_transcript, strip_punctuation_and_lowercase=strip_punctuation_and_lowercase),
                 filter(
                     lambda tr: decode_swda_id(tr) in selected_calls,
-                    cr.iter_transcripts()
+                    cr.iter_transcripts(display_progress=False)
                 )
             )
         )
@@ -361,7 +361,7 @@ Transformers IO specific methods.
 """
 
 
-def to_transformers_ner_dataset(call: List, continuations_allowed: bool = False) -> List[str]:
+def to_transformers_ner_dataset(call: List, continuations_allowed: bool = True) -> List[str]:
     """
     Convert a list of functional segments into text representations,
     used by the Transformers library to train NER models.
