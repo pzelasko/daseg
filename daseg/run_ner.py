@@ -584,7 +584,7 @@ def main():
     logger.info("Tokenizer arguments: %s", tokenizer_args)
 
     tokenizer = AutoTokenizer.from_pretrained(
-        args.tokenizer_name if args.tokenizer_name else args.model_name_or_path,
+        args.tokenizer_name if args.use_longformer or args.tokenizer_name else args.model_name_or_path,
         cache_dir=args.cache_dir if args.cache_dir else None,
         **tokenizer_args,
     )
