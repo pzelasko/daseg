@@ -153,7 +153,7 @@ def predict_batch_in_windows(
 
     has_crf = hasattr(model, 'crf') or (isinstance(model, DataParallel) and hasattr(model.module, 'crf'))
 
-    batch = tuple(t.to('cpu') for t in batch)
+    batch = tuple(t.to(device) for t in batch)
 
     if window_len is None:
         windows = [batch]

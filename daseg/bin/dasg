@@ -21,6 +21,7 @@ def cli():
 @click.option('-p', '--strip-punctuation-and-lowercase', is_flag=True)
 @click.option('-c', '--continuations-allowed', is_flag=True)
 @click.option('-t', '--window-test', is_flag=True)
+@click.option('-e', '--extended-swda-tagset', is_flag=True)
 def prepare_data(
         output_dir: str,
         swda_path: str,
@@ -28,13 +29,15 @@ def prepare_data(
         window_overlap: Optional[int],
         strip_punctuation_and_lowercase: bool,
         continuations_allowed: bool,
-        window_test: bool
+        window_test: bool,
+        extended_swda_tagset: bool
 ):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     dataset = SwdaDataset.from_path(
         swda_path=swda_path,
-        strip_punctuation_and_lowercase=strip_punctuation_and_lowercase
+        strip_punctuation_and_lowercase=strip_punctuation_and_lowercase,
+        original_43_tagset=not extended_swda_tagset
     )
     for split_name, split_dataset in dataset.train_dev_test_split().items():
         split_dataset.dump_for_transformers_ner(

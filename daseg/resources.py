@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Dict
 
 import spacy
 
@@ -14,6 +15,17 @@ def get_nlp():
 def get_tokenizer():
     nlp = get_nlp()
     return nlp.Defaults.create_tokenizer(nlp)
+
+
+def to_swda_43_labels(dialog_acts: Dict[str, str]) -> Dict[str, str]:
+    reduced_dialog_acts = dialog_acts.copy()
+    reduced_dialog_acts.update({
+        'sd^e': 'Other',
+        'fe': 'Other',
+        'qe': "Other",
+        'qr': 'Other'
+    })
+    return reduced_dialog_acts
 
 
 DIALOG_ACTS = {
@@ -57,7 +69,7 @@ DIALOG_ACTS = {
     'fp': 'Conventional-opening',
     'qrr': 'Or-Clause',
     'arp': 'Dispreferred-answers',
-    'nd': 'Answer-dispreferred',
+    'nd': 'Dispreferred-answers',
     't3': '3rd-party-talk',
     'oo': 'Offers/Options/Commits',
     'cc': 'Offers/Options/Commits',

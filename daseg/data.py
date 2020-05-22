@@ -5,7 +5,7 @@ import random
 import re
 from functools import partial
 from itertools import groupby, chain
-from typing import NamedTuple, Tuple, List, FrozenSet, Iterable, Dict, Optional, Callable
+from typing import NamedTuple, Tuple, List, FrozenSet, Iterable, Dict, Optional, Callable, Mapping
 
 import torch
 from spacy import displacy
@@ -17,7 +17,7 @@ from torch.utils.data import TensorDataset, SequentialSampler, DataLoader
 from tqdm import tqdm
 from transformers import PreTrainedTokenizer
 
-from daseg.resources import DIALOG_ACTS, COLORMAP, get_nlp
+from daseg.resources import DIALOG_ACTS, COLORMAP, get_nlp, to_swda_43_labels
 from daseg.splits import SWDA_SPLITS
 
 __all__ = ['FunctionalSegment', 'Call', 'SwdaDataset']
@@ -50,13 +50,18 @@ class SwdaDataset:
     def from_path(
             swda_path: str,
             splits=('train', 'dev', 'test'),
-            strip_punctuation_and_lowercase: bool = False
+            strip_punctuation_and_lowercase: bool = False,
+            original_43_tagset: bool = True,
     ) -> 'SwdaDataset':
         cr = CorpusReader(swda_path)
         selected_calls = frozenset(chain.from_iterable(SWDA_SPLITS[split] for split in splits))
         dialogues = dict(
             map(
-                partial(parse_transcript, strip_punctuation_and_lowercase=strip_punctuation_and_lowercase),
+                partial(
+                    parse_transcript,
+                    strip_punctuation_and_lowercase=strip_punctuation_and_lowercase,
+                    original_43_tagset=original_43_tagset
+                ),
                 filter(
                     lambda tr: decode_swda_id(tr) in selected_calls,
                     cr.iter_transcripts(display_progress=False)
@@ -302,13 +307,18 @@ class FunctionalSegment(NamedTuple):
     is_continuation: bool = False
 
 
-def parse_transcript(swda_tr: Transcript, strip_punctuation_and_lowercase: bool = False) -> Tuple[str, Call]:
+def parse_transcript(
+        swda_tr: Transcript,
+        strip_punctuation_and_lowercase: bool = False,
+        original_43_tagset: bool = True
+) -> Tuple[str, Call]:
     normalize_text = create_text_normalizer(strip_punctuation_and_lowercase)
+    dialog_acts = to_swda_43_labels(DIALOG_ACTS) if original_43_tagset else DIALOG_ACTS
     call_id = decode_swda_id(swda_tr)
     segments = (
         FunctionalSegment(
             text=normalize_text(' '.join(utt.text_words(filter_disfluency=True))),
-            dialog_act=lookup_or_fix(utt.act_tag),
+            dialog_act=lookup_or_fix(utt.act_tag, dialog_acts=dialog_acts),
             speaker=utt.caller
         ) for utt in swda_tr.utterances
     )
@@ -333,9 +343,9 @@ def parse_transcript(swda_tr: Transcript, strip_punctuation_and_lowercase: bool 
     return call_id, Call(resolved_segments)
 
 
-def lookup_or_fix(tag: str) -> str:
-    if tag in DIALOG_ACTS:
-        return DIALOG_ACTS[tag]
+def lookup_or_fix(tag: str, dialog_acts: Mapping[str, str]) -> str:
+    if tag in dialog_acts:
+        return dialog_acts[tag]
     # https://web.stanford.edu/~jurafsky/ws97/manual.august1.html
     # "We did the clustering by removing the secondary carat-dimensions (^2,^g,^m,^r,^e,^q,^d), with 5 exceptions"
     # (PZ): I added ^t to this list, docs say "about-task",
@@ -347,8 +357,8 @@ def lookup_or_fix(tag: str) -> str:
     #       'sd' is statement-non-opinion, 'sv' statement-opinion,
     #       but upon closer inspection they all seem to be quotes
     fixed_tag = '^q' if any(tag == name for name in ('sd(^q)', 'sv(^q)')) else fixed_tag
-    if fixed_tag in DIALOG_ACTS:
-        return DIALOG_ACTS[fixed_tag]
+    if fixed_tag in dialog_acts:
+        return dialog_acts[fixed_tag]
     return 'Other'
 
 
