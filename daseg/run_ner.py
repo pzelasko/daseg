@@ -16,13 +16,13 @@
 """ Fine-tuning the library models for named entity recognition on CoNLL-2003 (Bert or Roberta). """
 
 import argparse
+import glob
 import logging
 import os
+import random
 from typing import Optional
 
-import glob
 import numpy as np
-import random
 import torch
 from longformer.longformer import LongformerConfig
 from torch.nn import CrossEntropyLoss
@@ -285,7 +285,7 @@ def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""
 
     flat_results = {
         f'{grp}_{m}': v
-        for grp in ['seqeval_metrics', 'sklearn_metrics']
+        for grp in ['seqeval_metrics', 'sklearn_metrics', 'zhao_kawahara_metrics']
         for m, v in all_results[grp].items()
     }
     flat_results['loss'] = all_results['loss']
