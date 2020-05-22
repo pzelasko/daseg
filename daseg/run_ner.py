@@ -285,7 +285,7 @@ def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""
 
     flat_results = {
         f'{grp}_{m}': v
-        for grp in ['seqeval_metrics', 'sklearn_metrics', 'zhao_kawahara_metrics']
+        for grp in ['seqeval_metrics', 'sklearn_metrics']
         for m, v in all_results[grp].items()
     }
     flat_results['loss'] = all_results['loss']
