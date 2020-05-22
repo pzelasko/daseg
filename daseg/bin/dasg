@@ -1,0 +1,49 @@
+#!/usr/bin/env python
+
+from pathlib import Path
+from typing import Optional
+
+import click
+
+from daseg import SwdaDataset
+
+
+@click.group()
+def cli():
+    pass
+
+
+@cli.command()
+@click.argument('output_dir', type=click.Path())
+@click.option('--swda-path', default='deps/swda/swda', type=click.Path(exists=True, file_okay=False))
+@click.option('--window-size', type=int, default=None)
+@click.option('--window-overlap', type=int, default=None)
+@click.option('-p', '--strip-punctuation-and-lowercase', is_flag=True)
+@click.option('-c', '--continuations-allowed', is_flag=True)
+@click.option('-t', '--window-test', is_flag=True)
+def prepare_data(
+        output_dir: str,
+        swda_path: str,
+        window_size: Optional[int],
+        window_overlap: Optional[int],
+        strip_punctuation_and_lowercase: bool,
+        continuations_allowed: bool,
+        window_test: bool
+):
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    dataset = SwdaDataset.from_path(
+        swda_path=swda_path,
+        strip_punctuation_and_lowercase=strip_punctuation_and_lowercase
+    )
+    for split_name, split_dataset in dataset.train_dev_test_split().items():
+        split_dataset.dump_for_transformers_ner(
+            output_dir / f'{split_name}.txt.tmp',
+            acts_count_per_sample=window_size if split_name != 'test' or window_test else None,
+            acts_count_overlap=window_overlap if split_name != 'test' or window_test else None,
+            continuations_allowed=continuations_allowed
+        )
+
+
+if __name__ == '__main__':
+    cli()
