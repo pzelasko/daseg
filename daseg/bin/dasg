@@ -5,7 +5,7 @@ from typing import Optional
 
 import click
 
-from daseg import SwdaDataset
+from daseg import SwdaDataset, TransformerModel
 
 
 @click.group()
@@ -46,6 +46,39 @@ def prepare_data(
             acts_count_overlap=window_overlap if split_name != 'test' or window_test else None,
             continuations_allowed=continuations_allowed
         )
+
+
+@cli.command()
+@click.argument('model_path', type=click.Path(exists=True, file_okay=False))
+@click.option('--swda-path', default='deps/swda/swda', type=click.Path(exists=True, file_okay=False))
+@click.option('--split', type=click.Choice(['train', 'dev', 'test']), default='test')
+@click.option('--batch_size', default=4, type=int)
+@click.option('--window_len', default=512, type=int)
+@click.option('--device', default='cpu', type=str)
+@click.option('-p', '--strip-punctuation-and-lowercase', is_flag=True)
+@click.option('-e', '--extended-swda-tagset', is_flag=True)
+def evaluate(
+        model_path,
+        swda_path,
+        split,
+        batch_size,
+        window_len,
+        device,
+        strip_punctuation_and_lowercase,
+        extended_swda_tagset
+):
+    dataset = SwdaDataset.from_path(
+        swda_path,
+        splits=[split],
+        strip_punctuation_and_lowercase=strip_punctuation_and_lowercase,
+        original_43_tagset=not extended_swda_tagset
+    )
+    model = TransformerModel.from_path(model_path, device=device)
+    results = model.predict(dataset, batch_size=batch_size, window_len=window_len)
+    for res_grp in ('sklearn_metrics', 'seqeval_metrics', 'zhao_kawahara_metrics'):
+        print(f'{res_grp.upper()}:')
+        for key, val in results[res_grp].items():
+            print(f'- {key} => {val:.2f}')
 
 
 if __name__ == '__main__':
