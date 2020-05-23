@@ -78,7 +78,7 @@ def evaluate(
     for res_grp in ('sklearn_metrics', 'seqeval_metrics', 'zhao_kawahara_metrics'):
         print(f'{res_grp.upper()}:')
         for key, val in results[res_grp].items():
-            print(f'- {key} => {val:.2f}')
+            print(f'- {key} => {val:.2%}')
 
 
 if __name__ == '__main__':
