@@ -36,7 +36,7 @@ from transformers import (
     AdamW,
     AutoModelForTokenClassification,
     AutoTokenizer,
-    get_linear_schedule_with_warmup, AutoConfig
+    get_linear_schedule_with_warmup, AutoConfig, XLNetForTokenClassification
 )
 from transformers.modeling_auto import MODEL_MAPPING
 
@@ -710,7 +710,7 @@ def load_model(args, config, path: Optional[str] = None):
         model = model_class.from_pretrained(path)
     else:
         if args.random_init:
-            model = model_class(config)
+            model = XLNetForTokenClassification(config)
         else:
             model = model_class.from_pretrained(
                 args.model_name_or_path,
