@@ -20,6 +20,7 @@ import glob
 import logging
 import os
 import random
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -42,6 +43,7 @@ from transformers.modeling_auto import MODEL_MAPPING
 from daseg import TransformerModel
 from daseg.data import NEW_TURN
 from daseg.longformer_model import LongformerForTokenClassification, LongformerCRFForTokenClassification
+from daseg.recurrent_model import RNNForTokenClassification
 from daseg.utils_ner import convert_examples_to_features, get_labels, read_examples_from_file
 from daseg.xlnet import XLNetCRFForTokenClassification
 
@@ -235,7 +237,10 @@ def train(args, train_dataset, model, tokenizer, labels, pad_token_label_id):
                     model_to_save = (
                         model.module if hasattr(model, "module") else model
                     )  # Take care of distributed/parallel training
-                    model_to_save.save_pretrained(output_dir)
+                    if not isinstance(model_to_save, RNNForTokenClassification):
+                        model_to_save.save_pretrained(output_dir)
+                    else:
+                        torch.save(model_to_save, Path(output_dir) / 'rnn.pt')
                     tokenizer.save_pretrained(output_dir)
 
                     torch.save(args, os.path.join(output_dir, "training_args.bin"))
@@ -495,6 +500,7 @@ def main():
                         help="When specified, CRF will be performed over all windows predictions instead of "
                              "over each window individually (works only with nonzero --eval_window_size).")
     parser.add_argument('--use_longformer', action='store_true', help='Use the Longformer model (override others)')
+    parser.add_argument('--use_rnn', action='store_true', help='Use the RNN model (override others)')
 
     args = parser.parse_args()
 
@@ -591,7 +597,8 @@ def main():
     tokenizer.add_special_tokens({'additional_special_tokens': [NEW_TURN]})
 
     model = load_model(args, config)
-    model.resize_token_embeddings(len(tokenizer))
+    if not isinstance(model, RNNForTokenClassification):
+        model.resize_token_embeddings(len(tokenizer))
 
     if args.local_rank == 0:
         torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab
@@ -620,7 +627,10 @@ def main():
         model_to_save = (
             model.module if hasattr(model, "module") else model
         )  # Take care of distributed/parallel training
-        model_to_save.save_pretrained(args.output_dir)
+        if not isinstance(model, RNNForTokenClassification):
+            model_to_save.save_pretrained(args.output_dir)
+        else:
+            torch.save(model_to_save, Path(args.output_dir) / 'rnn.pt')
         tokenizer.save_pretrained(args.output_dir)
 
         # Good practice: save your training arguments together with the trained model
@@ -681,6 +691,14 @@ def main():
 
 def load_model(args, config, path: Optional[str] = None):
     # TODO: clean this up
+    if args.use_rnn:
+        if path is not None:
+            model = torch.load(path)
+            assert isinstance(model, RNNForTokenClassification)
+        else:
+            model = RNNForTokenClassification(config)
+        return model
+
     model_class = (
         LongformerCRFForTokenClassification if (args.use_longformer and args.use_crf)
         else LongformerForTokenClassification if args.use_longformer

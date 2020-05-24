@@ -53,7 +53,7 @@ def prepare_data(
 @click.option('--swda-path', default='deps/swda/swda', type=click.Path(exists=True, file_okay=False))
 @click.option('--split', type=click.Choice(['train', 'dev', 'test']), default='test')
 @click.option('--batch_size', default=4, type=int)
-@click.option('--window_len', default=512, type=int)
+@click.option('--window_len', default=None, type=int)
 @click.option('--device', default='cpu', type=str)
 @click.option('-p', '--strip-punctuation-and-lowercase', is_flag=True)
 @click.option('-e', '--extended-swda-tagset', is_flag=True)
