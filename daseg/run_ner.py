@@ -501,6 +501,7 @@ def main():
                              "over each window individually (works only with nonzero --eval_window_size).")
     parser.add_argument('--use_longformer', action='store_true', help='Use the Longformer model (override others)')
     parser.add_argument('--use_rnn', action='store_true', help='Use the RNN model (override others)')
+    parser.add_argument('--random_init', action='store_true', help='Do not use any pretrained weights')
 
     args = parser.parse_args()
 
@@ -708,12 +709,15 @@ def load_model(args, config, path: Optional[str] = None):
     if path is not None:
         model = model_class.from_pretrained(path)
     else:
-        model = model_class.from_pretrained(
-            args.model_name_or_path,
-            from_tf=bool(".ckpt" in args.model_name_or_path),
-            config=config,
-            cache_dir=args.cache_dir if args.cache_dir else None,
-        )
+        if args.random_init:
+            model = model_class(config)
+        else:
+            model = model_class.from_pretrained(
+                args.model_name_or_path,
+                from_tf=bool(".ckpt" in args.model_name_or_path),
+                config=config,
+                cache_dir=args.cache_dir if args.cache_dir else None,
+            )
     return model
 
 
