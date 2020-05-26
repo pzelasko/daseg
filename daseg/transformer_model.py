@@ -64,10 +64,12 @@ class TransformerModel:
             batch_size: int = 1,
             window_len: Optional[int] = None,
             window_overlap: Optional[int] = None,
-            crf_decoding: bool = False
+            propagate_context: bool = True,
+            crf_decoding: bool = False,
     ) -> Dict[str, Any]:
-        if self.config.model_type == 'xlnet':
-            self.model.set_memory(window_len)
+        if self.config.model_type == 'xlnet' and propagate_context:
+            self.model.transformer.mem_len = window_len
+            self.model.config.mem_len = window_len
 
         # TODO: cleanup the dataloader stuff
 
@@ -162,7 +164,7 @@ def predict_batch_in_windows(
 
     use_xlnet_memory = (config.model_type == 'xlnet' and config.output_past
                         and config.mem_len is not None and config.mem_len > 0)
-    print('Using XLNet memory')
+    print(f'Using XLNet memory: {use_xlnet_memory}')
 
     has_crf = hasattr(model, 'crf') or (isinstance(model, DataParallel) and hasattr(model.module, 'crf'))
 
