@@ -13,24 +13,37 @@ from torch.nn.modules.loss import CrossEntropyLoss
 from torch.utils.data.dataloader import DataLoader
 from tqdm import trange
 from tqdm.autonotebook import tqdm
-from transformers import AutoTokenizer, AutoModelForTokenClassification, PreTrainedTokenizer
+from transformers import AutoTokenizer, AutoModelForTokenClassification, PreTrainedTokenizer, \
+    LongformerTokenizer
 
 from daseg.data import SwdaDataset, to_transformers_ner_dataset
 
 __all__ = ['TransformerModel']
+
+# from daseg.longformer_model import LongformerCRFForTokenClassification, LongformerForTokenClassification
+# from daseg.recurrent_model import RNNForTokenClassification
+# from daseg.xlnet import XLNetCRFForTokenClassification
+from daseg.longformer_model import LongformerForTokenClassification
 
 from daseg.metrics import compute_sklearn_metrics, compute_seqeval_metrics, compute_zhao_kawahara_metrics
 
 
 class TransformerModel:
     @staticmethod
-    def from_path(model_dir: Path, device: str = 'cpu'):
+    def from_path(model_dir: Path, device: str = 'cpu', is_longformer: bool = False):
+        # HACK: workaround for LongformerForTokenClassification not registered in AutoModel*
+        if 'longformer' in str(model_dir) or is_longformer:
+            model_cls = LongformerForTokenClassification
+            tok_cls = LongformerTokenizer
+        else:
+            model_cls = AutoModelForTokenClassification
+            tok_cls = AutoTokenizer
         return TransformerModel(
-            tokenizer=AutoTokenizer.from_pretrained(
+            tokenizer=tok_cls.from_pretrained(
                 model_dir,
                 **json.load(open(Path(model_dir) / 'tokenizer_config.json'))
             ),
-            model=AutoModelForTokenClassification.from_pretrained(model_dir),
+            model=model_cls.from_pretrained(model_dir),
             device=device
         )
 
@@ -65,9 +78,9 @@ class TransformerModel:
             # Tokenize just to find what's the maximum length after tokenization
             tok_results = self.tokenizer.batch_encode_plus(
                 [' '.join(c.words(add_turn_token=True)) for c in dataset.calls],
-                return_input_lengths=True
+                return_lengths=True
             )
-            max_len = max(tok_results['input_len'])
+            max_len = max(tok_results['length'])
             dataloader = dataset.to_transformers_ner_format(
                 tokenizer=self.tokenizer,
                 max_seq_length=max_len,
@@ -207,3 +220,33 @@ def predictions_to_dataset(original_dataset: SwdaDataset, predictions: List[List
             print(file=f)
         f.flush()
         return SwdaDataset.from_transformers_predictions(f.name)
+
+# def load_model(args, config, path: Optional[str] = None):
+#     # TODO: clean this up
+#     if args.use_rnn:
+#         if path is not None:
+#             model = torch.load(path)
+#             assert isinstance(model, RNNForTokenClassification)
+#         else:
+#             model = RNNForTokenClassification(config)
+#         return model
+#
+#     model_class = (
+#         LongformerCRFForTokenClassification if (args.use_longformer and args.use_crf)
+#         else LongformerForTokenClassification if args.use_longformer
+#         else XLNetCRFForTokenClassification if args.use_crf
+#         else AutoModelForTokenClassification
+#     )
+#     if path is not None:
+#         model = model_class.from_pretrained(path)
+#     else:
+#         if args.random_init:
+#             model = XLNetForTokenClassification(config)
+#         else:
+#             model = model_class.from_pretrained(
+#                 args.model_name_or_path,
+#                 from_tf=bool(".ckpt" in args.model_name_or_path),
+#                 config=config,
+#                 cache_dir=args.cache_dir if args.cache_dir else None,
+#             )
+#     return model

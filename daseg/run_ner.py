@@ -25,7 +25,6 @@ from typing import Optional
 
 import numpy as np
 import torch
-from longformer.longformer import LongformerConfig
 from torch.nn import CrossEntropyLoss
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, TensorDataset
 from torch.utils.data.distributed import DistributedSampler
@@ -42,7 +41,7 @@ from transformers.modeling_auto import MODEL_MAPPING
 
 from daseg import TransformerModel
 from daseg.data import NEW_TURN
-from daseg.longformer_model import LongformerForTokenClassification, LongformerCRFForTokenClassification
+from daseg.longformer_model import LongformerForTokenClassification
 from daseg.recurrent_model import RNNForTokenClassification
 from daseg.utils_ner import convert_examples_to_features, get_labels, read_examples_from_file
 from daseg.xlnet import XLNetCRFForTokenClassification
@@ -569,11 +568,11 @@ def main():
         torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab
 
     args.model_type = args.model_type.lower()
-    if args.use_longformer:
-        confclass = LongformerConfig
-    else:
-        confclass = AutoConfig
-    config = confclass.from_pretrained(
+    # if args.use_longformer:
+    #     confclass = LongformerConfig
+    # else:
+    #     confclass = AutoConfig
+    config = AutoConfig.from_pretrained(
         args.config_name if args.config_name else args.model_name_or_path,
         num_labels=num_labels,
         id2label={str(i): label for i, label in enumerate(labels)},
@@ -700,9 +699,11 @@ def load_model(args, config, path: Optional[str] = None):
             model = RNNForTokenClassification(config)
         return model
 
+    if args.use_longformer and args.use_crf: raise NotImplementedError()
+
     model_class = (
-        LongformerCRFForTokenClassification if (args.use_longformer and args.use_crf)
-        else LongformerForTokenClassification if args.use_longformer
+        # LongformerCRFForTokenClassification if (args.use_longformer and args.use_crf)
+        LongformerForTokenClassification if args.use_longformer
         else XLNetCRFForTokenClassification if args.use_crf
         else AutoModelForTokenClassification
     )
