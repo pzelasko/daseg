@@ -164,7 +164,6 @@ def predict_batch_in_windows(
 
     use_xlnet_memory = (config.model_type == 'xlnet' and config.output_past
                         and config.mem_len is not None and config.mem_len > 0)
-    print(f'Using XLNet memory: {use_xlnet_memory}')
 
     has_crf = hasattr(model, 'crf') or (isinstance(model, DataParallel) and hasattr(model.module, 'crf'))
 

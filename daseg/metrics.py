@@ -1,4 +1,5 @@
 from collections import defaultdict
+from itertools import chain
 from typing import List
 
 import pandas as pd
@@ -13,6 +14,12 @@ from daseg import SwdaDataset
 def compute_sklearn_metrics(true_labels: List[List[str]], predictions: List[List[str]]):
     fp = list(flatten(predictions))
     fl = list(flatten(true_labels))
+
+    I_labels = set(l for l in chain(fp, fl) if l.startswith('I-'))
+    mapping = {ilab: 'I' for ilab in I_labels}
+
+    fp_common_I = [mapping.get(l, l) for l in fp]
+    fl_common_I = [mapping.get(l, l) for l in fl]
     return {
         "micro_precision": sklmetrics.precision_score(fl, fp, average='micro'),
         "micro_recall": sklmetrics.recall_score(fl, fp, average='micro'),
@@ -21,6 +28,8 @@ def compute_sklearn_metrics(true_labels: List[List[str]], predictions: List[List
         "macro_recall": sklmetrics.recall_score(fl, fp, average='macro'),
         "macro_f1": sklmetrics.f1_score(fl, fp, average='macro'),
         "accuracy": sklmetrics.accuracy_score(fl, fp),
+        "micro_f1_common_I": sklmetrics.f1_score(fl_common_I, fp_common_I, average='micro'),
+        "macro_f1_common_I": sklmetrics.f1_score(fl_common_I, fp_common_I, average='macro'),
     }
 
 
