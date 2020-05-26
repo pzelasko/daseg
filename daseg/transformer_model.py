@@ -66,9 +66,8 @@ class TransformerModel:
             window_overlap: Optional[int] = None,
             crf_decoding: bool = False
     ) -> Dict[str, Any]:
-        # TODO:
-        # if self.config.model_type == 'xlnet':
-        #     self.model.set_memory(window_len)
+        if self.config.model_type == 'xlnet':
+            self.model.set_memory(window_len)
 
         # TODO: cleanup the dataloader stuff
 
@@ -163,6 +162,7 @@ def predict_batch_in_windows(
 
     use_xlnet_memory = (config.model_type == 'xlnet' and config.output_past
                         and config.mem_len is not None and config.mem_len > 0)
+    print('Using XLNet memory')
 
     has_crf = hasattr(model, 'crf') or (isinstance(model, DataParallel) and hasattr(model.module, 'crf'))
 
@@ -220,33 +220,3 @@ def predictions_to_dataset(original_dataset: SwdaDataset, predictions: List[List
             print(file=f)
         f.flush()
         return SwdaDataset.from_transformers_predictions(f.name)
-
-# def load_model(args, config, path: Optional[str] = None):
-#     # TODO: clean this up
-#     if args.use_rnn:
-#         if path is not None:
-#             model = torch.load(path)
-#             assert isinstance(model, RNNForTokenClassification)
-#         else:
-#             model = RNNForTokenClassification(config)
-#         return model
-#
-#     model_class = (
-#         LongformerCRFForTokenClassification if (args.use_longformer and args.use_crf)
-#         else LongformerForTokenClassification if args.use_longformer
-#         else XLNetCRFForTokenClassification if args.use_crf
-#         else AutoModelForTokenClassification
-#     )
-#     if path is not None:
-#         model = model_class.from_pretrained(path)
-#     else:
-#         if args.random_init:
-#             model = XLNetForTokenClassification(config)
-#         else:
-#             model = model_class.from_pretrained(
-#                 args.model_name_or_path,
-#                 from_tf=bool(".ckpt" in args.model_name_or_path),
-#                 config=config,
-#                 cache_dir=args.cache_dir if args.cache_dir else None,
-#             )
-#     return model
