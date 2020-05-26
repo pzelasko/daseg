@@ -57,7 +57,7 @@ def prepare_data(
 @click.option('--device', default='cpu', type=str)
 @click.option('-p', '--strip-punctuation-and-lowercase', is_flag=True)
 @click.option('-e', '--extended-swda-tagset', is_flag=True)
-@click.option('-c', '--propagate-context', is_flag=True)
+@click.option('-d', '--dont-propagate-context', is_flag=True)
 def evaluate(
         model_path,
         swda_path,
@@ -67,7 +67,7 @@ def evaluate(
         device,
         strip_punctuation_and_lowercase,
         extended_swda_tagset,
-        propagate_context
+        dont_propagate_context
 ):
     dataset = SwdaDataset.from_path(
         swda_path,
@@ -76,7 +76,12 @@ def evaluate(
         original_43_tagset=not extended_swda_tagset
     )
     model = TransformerModel.from_path(model_path, device=device)
-    results = model.predict(dataset, batch_size=batch_size, window_len=window_len, propagate_context=propagate_context)
+    results = model.predict(
+        dataset,
+        batch_size=batch_size,
+        window_len=window_len,
+        propagate_context=not dont_propagate_context
+    )
     for res_grp in ('sklearn_metrics', 'seqeval_metrics', 'zhao_kawahara_metrics'):
         print(f'{res_grp.upper()}:')
         for key, val in results[res_grp].items():
