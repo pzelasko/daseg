@@ -27,6 +27,12 @@ class LongformerForTokenClassification(BertPreTrainedModel):
 
         self.init_weights()
 
+    def get_input_embeddings(self):
+        return self.roberta.get_input_embeddings()
+
+    def set_input_embeddings(self, value: nn.Module):
+        return self.roberta.set_input_embeddings(value)
+
     @add_start_docstrings_to_callable(ROBERTA_INPUTS_DOCSTRING)
     def forward(
             self,
