@@ -66,6 +66,7 @@ class TransformerModel:
             window_overlap: Optional[int] = None,
             propagate_context: bool = True,
             crf_decoding: bool = False,
+            compute_metrics: bool = True
     ) -> Dict[str, Any]:
         if self.config.model_type == 'xlnet' and propagate_context:
             self.model.transformer.mem_len = window_len
@@ -100,6 +101,7 @@ class TransformerModel:
                     config=self.config,
                     window_len=window_len,
                     window_overlap=window_overlap,
+                    propagate_context=propagate_context,
                     device=self.device
                 ),
                 dataloader
@@ -137,14 +139,18 @@ class TransformerModel:
             "predictions": preds_list,
             "logits": logits,
             "true_labels": out_label_list,
-            "sklearn_metrics": compute_sklearn_metrics(out_label_list, preds_list),
-            "seqeval_metrics": compute_seqeval_metrics(out_label_list, preds_list)
         }
+        if compute_metrics:
+            results.update({
+                "sklearn_metrics": compute_sklearn_metrics(out_label_list, preds_list),
+                "seqeval_metrics": compute_seqeval_metrics(out_label_list, preds_list)
+            })
         if isinstance(dataset, SwdaDataset):
             results["dataset"] = predictions_to_dataset(dataset, preds_list)
-            results["zhao_kawahara_metrics"] = compute_zhao_kawahara_metrics(
-                true_dataset=dataset, pred_dataset=results['dataset']
-            )
+            if compute_metrics:
+                results["zhao_kawahara_metrics"] = compute_zhao_kawahara_metrics(
+                    true_dataset=dataset, pred_dataset=results['dataset']
+                )
 
         return results
 
@@ -155,14 +161,15 @@ def predict_batch_in_windows(
         config,
         window_len: Optional[int] = None,
         window_overlap: Optional[int] = None,
-        device: str = 'cpu'
+        propagate_context: bool = True,
+        device: str = 'cpu',
 ):
     if window_overlap is not None:
         raise ValueError("Overlapping windows processing not implemented.")
     else:
         window_overlap = 0
 
-    use_xlnet_memory = (config.model_type == 'xlnet' and config.output_past
+    use_xlnet_memory = (config.model_type == 'xlnet' and propagate_context
                         and config.mem_len is not None and config.mem_len > 0)
 
     has_crf = hasattr(model, 'crf') or (isinstance(model, DataParallel) and hasattr(model.module, 'crf'))
