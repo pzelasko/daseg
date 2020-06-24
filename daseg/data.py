@@ -14,7 +14,7 @@ from spacy.tokens.span import Span
 from swda import Transcript, CorpusReader
 from torch.nn.modules.loss import CrossEntropyLoss
 from torch.utils.data import TensorDataset, SequentialSampler, DataLoader
-from tqdm import tqdm
+from tqdm.autonotebook import tqdm
 from transformers import PreTrainedTokenizer
 
 from daseg.resources import DIALOG_ACTS, COLORMAP, get_nlp, to_swda_43_labels
