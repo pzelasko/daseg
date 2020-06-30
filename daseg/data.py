@@ -231,18 +231,35 @@ class SwdaDataset:
 class Call(List['FunctionalSegment']):
     def words(self, add_turn_token: bool = True) -> List[str]:
         words, tags = self.words_with_tags(add_turn_token=add_turn_token)
-        return words
+        return list(words)
 
-    def words_with_tags(self, add_turn_token: bool = True) -> Tuple[List[str], List[str]]:
+    def words_with_tags(
+            self,
+            add_turn_token: bool = True,
+            indicate_begin_continue: bool = True,
+            continuations_allowed: bool = True
+    ) -> Tuple[List[str], List[str]]:
+
+        def resolve_dialog_act(word: str, segment_pos: int, segment: FunctionalSegment):
+            dialog_act = segment.dialog_act
+            if dialog_act is None or word == NEW_TURN:
+                return BLANK
+            if not indicate_begin_continue:
+                return dialog_act
+            prefix = BEGIN_TAG
+            if segment_pos != 0 or (segment.is_continuation and continuations_allowed):
+                prefix = CONTINUE_TAG
+            return f'{prefix}{dialog_act}'
+
         pairs = [
-            (w, seg.dialog_act if seg.dialog_act is not None and w != NEW_TURN else BLANK)
-            for seg in self
-            for w in seg.text.split() + ([NEW_TURN] if add_turn_token else [])
+            (w, resolve_dialog_act(word=w, segment_pos=segment_pos, segment=segment))
+            for segment in self
+            for segment_pos, w in enumerate(segment.text.split() + ([NEW_TURN] if add_turn_token else []))
         ]
         if add_turn_token:
             pairs = pairs[:-1]
         words, tags = zip(*pairs)
-        return words, tags
+        return list(words), list(tags)
 
     def render(self, max_turns=None, jupyter=True, random_seed=0):
         """Render the call as annotated with dialog acts in a Jupyter notebook"""
