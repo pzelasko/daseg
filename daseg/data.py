@@ -152,10 +152,10 @@ class SwdaDataset:
     def to_transformers_ner_format(
             self,
             tokenizer: PreTrainedTokenizer,
-            max_seq_length: int,
             model_type: str,
             batch_size: int,
-            labels: Iterable[str]
+            labels: Iterable[str],
+            max_seq_length: Optional[int] = None,
     ) -> DataLoader:
         """
         Convert the DA dataset into a PyTorch DataLoader for inference.
@@ -167,7 +167,8 @@ class SwdaDataset:
             - use this arg to supply the full list of labels
         :return: PyTorch DataLoader
         """
-        # tokenizer.add_special_tokens({'additional_special_tokens': [NEW_TURN]})
+        if max_seq_length is None:
+            max_seq_length = 99999999999999999
 
         ner_examples = []
         for idx, call in enumerate(self.calls):

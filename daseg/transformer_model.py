@@ -24,7 +24,6 @@ from transformers import (
 __all__ = ['TransformerModel']
 
 
-
 class TransformerModel:
     @staticmethod
     def from_path(model_dir: Path, device: str = 'cpu', is_longformer: bool = False):
@@ -76,10 +75,10 @@ class TransformerModel:
         if isinstance(dataset, SwdaDataset):
             dataloader = dataset.to_transformers_ner_format(
                 tokenizer=self.tokenizer,
-                max_seq_length=window_len,
                 model_type=self.config.model_type,
                 batch_size=batch_size,
-                labels=self.config.label2id.keys()
+                labels=self.config.label2id.keys(),
+                max_seq_length=None,
             )
         else:
             dataloader = dataset
@@ -106,7 +105,6 @@ class TransformerModel:
             preds, lls = zip(*self.model.crf.viterbi_tags(torch.from_numpy(logits)))
         else:
             preds = np.argmax(logits, axis=2)
-
 
         pad_token_label_id = CrossEntropyLoss().ignore_index
         label_map = {i: label for i, label in enumerate(labels)}
