@@ -6,26 +6,23 @@ from typing import Any, Dict, Optional, List, Tuple, Union
 
 import numpy as np
 import torch
+from daseg.data import SwdaDataset
+from daseg.longformer_model import LongformerForTokenClassification
+from daseg.metrics import compute_sklearn_metrics, compute_seqeval_metrics, compute_zhao_kawahara_metrics
 from more_itertools import flatten
 from torch import nn
 from torch.nn import DataParallel
 from torch.nn.modules.loss import CrossEntropyLoss
 from torch.utils.data.dataloader import DataLoader
-from tqdm import trange
-from tqdm.autonotebook import tqdm
-from transformers import AutoTokenizer, AutoModelForTokenClassification, PreTrainedTokenizer, \
+from transformers import (
+    AutoTokenizer,
+    AutoModelForTokenClassification,
+    PreTrainedTokenizer,
     LongformerTokenizer
-
-from daseg.data import SwdaDataset, to_transformers_ner_dataset
+)
 
 __all__ = ['TransformerModel']
 
-# from daseg.longformer_model import LongformerCRFForTokenClassification, LongformerForTokenClassification
-# from daseg.recurrent_model import RNNForTokenClassification
-# from daseg.xlnet import XLNetCRFForTokenClassification
-from daseg.longformer_model import LongformerForTokenClassification
-
-from daseg.metrics import compute_sklearn_metrics, compute_seqeval_metrics, compute_zhao_kawahara_metrics
 
 
 class TransformerModel:
@@ -77,15 +74,9 @@ class TransformerModel:
         labels = list(self.config.label2id.keys())
 
         if isinstance(dataset, SwdaDataset):
-            # Tokenize just to find what's the maximum length after tokenization
-            tok_results = self.tokenizer.batch_encode_plus(
-                [' '.join(c.words(add_turn_token=True)) for c in dataset.calls],
-                return_lengths=True
-            )
-            max_len = max(tok_results['length'])
             dataloader = dataset.to_transformers_ner_format(
                 tokenizer=self.tokenizer,
-                max_seq_length=max_len,
+                max_seq_length=window_len,
                 model_type=self.config.model_type,
                 batch_size=batch_size,
                 labels=self.config.label2id.keys()
@@ -93,7 +84,7 @@ class TransformerModel:
         else:
             dataloader = dataset
 
-        eval_ce_losses, eval_crf_losses, logits, out_label_ids = zip(*list(tqdm(
+        eval_ce_losses, eval_crf_losses, logits, out_label_ids = zip(*list(
             map(
                 partial(
                     predict_batch_in_windows,
@@ -106,16 +97,16 @@ class TransformerModel:
                 ),
                 dataloader
             ),
-            desc=f'Predicting dialog acts (batches of {batch_size})',
-            leave=False
-        )))
+        ))
 
         out_label_ids = np.concatenate(out_label_ids, axis=0)
         logits = np.concatenate(logits, axis=0)
+
         if crf_decoding and hasattr(self.model, 'crf'):
             preds, lls = zip(*self.model.crf.viterbi_tags(torch.from_numpy(logits)))
         else:
             preds = np.argmax(logits, axis=2)
+
 
         pad_token_label_id = CrossEntropyLoss().ignore_index
         label_map = {i: label for i, label in enumerate(labels)}
@@ -183,7 +174,7 @@ def predict_batch_in_windows(
         window_shift = window_len - window_overlap
         windows = (
             [t[:, i: i + window_len].contiguous().to(device) for t in batch]
-            for i in trange(0, maxlen, window_shift, leave=False, desc='Traversing batch in windows')
+            for i in range(0, maxlen, window_shift)
         )
 
     ce_loss, crf_loss, logits = [], [], []
@@ -221,8 +212,9 @@ def predictions_to_dataset(original_dataset: SwdaDataset, predictions: List[List
     # Does some possibly unnecessary back-and-forth, but gets the job done!
     with NamedTemporaryFile('w+') as f:
         for call, pred_tags in zip(original_dataset.calls, predictions):
-            lines = to_transformers_ner_dataset(call)
-            words, tags = zip(*[l.split() for l in lines])
+            words = call.words(add_turn_token=True)
+            assert len(words) == len(pred_tags), \
+                f'Mismatched words ({len(words)}) and predicted tags ({len(pred_tags)}) counts'
             for w, t in zip(words, pred_tags):
                 print(f'{w} {t}', file=f)
             print(file=f)

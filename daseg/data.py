@@ -8,6 +8,8 @@ from itertools import groupby, chain
 from typing import NamedTuple, Tuple, List, FrozenSet, Iterable, Dict, Optional, Callable, Mapping
 
 import torch
+from daseg.resources import DIALOG_ACTS, COLORMAP, get_nlp, to_swda_43_labels
+from daseg.splits import SWDA_SPLITS
 from spacy import displacy
 from spacy.tokens.doc import Doc
 from spacy.tokens.span import Span
@@ -16,9 +18,6 @@ from torch.nn.modules.loss import CrossEntropyLoss
 from torch.utils.data import TensorDataset, SequentialSampler, DataLoader
 from tqdm.autonotebook import tqdm
 from transformers import PreTrainedTokenizer
-
-from daseg.resources import DIALOG_ACTS, COLORMAP, get_nlp, to_swda_43_labels
-from daseg.splits import SWDA_SPLITS
 
 __all__ = ['FunctionalSegment', 'Call', 'SwdaDataset']
 
@@ -161,7 +160,7 @@ class SwdaDataset:
         """
         Convert the DA dataset into a PyTorch DataLoader for inference.
         :param tokenizer: Transformers pre-trained tokenizer object
-        :param max_seq_length: self-explanatory
+        :param max_seq_length: The actual sequence length will be min(max_seq_length, <actual sequence lengths>)
         :param model_type: string describing Transformers model type (e.g. xlnet, xlmroberta, bert, ...)
         :param batch_size: self-explanatory
         :param labels: you might run into problems if this is a subset of larger dataset which doesn't cover every label
@@ -173,9 +172,24 @@ class SwdaDataset:
         ner_examples = []
         for idx, call in enumerate(self.calls):
             # This does some unnecessary back-and-forth but it's convenient
-            lines = to_transformers_ner_dataset(call)
-            words, tags = zip(*[l.split() for l in lines])
+            # lines = to_transformers_ner_dataset(call)
+            # zip(*[l.split() for l in lines])
+            words, tags = call.words_with_tags(add_turn_token=True)
             ner_examples.append(InputExample(guid=idx, words=words, labels=tags))
+
+        # determine max seq length
+        max_tok_count = 0
+        for (ex_index, example) in enumerate(ner_examples):
+            tok_count = 0
+            for word in example.words:
+                word_tokens = tokenizer.tokenize(word)
+                tok_count += len(word_tokens)
+            max_tok_count = max(max_tok_count, tok_count)
+
+        sep_token_extra = bool(model_type in ["roberta"]),
+        special_tokens_count = 3 if sep_token_extra else 2
+        max_tok_count += special_tokens_count
+        max_seq_length = min(max_tok_count, max_seq_length)
 
         # The following lines are basically a copy-paste of Transformer's NER code
         # TODO: It could be modified to create "ragged" batches for faster CPU inference
@@ -189,7 +203,7 @@ class SwdaDataset:
             cls_token=tokenizer.cls_token,
             cls_token_segment_id=2 if model_type in ["xlnet"] else 0,
             sep_token=tokenizer.sep_token,
-            sep_token_extra=bool(model_type in ["roberta"]),
+            sep_token_extra=sep_token_extra,
             # roberta uses an extra separator b/w pairs of sentences, cf. github.com/pytorch/fairseq/commit/1684e166e3da03f5b600dbb7855cb98ddfcd0805
             pad_on_left=bool(model_type in ["xlnet"]),
             # pad on the left for xlnet
@@ -215,23 +229,29 @@ class SwdaDataset:
 
 class Call(List['FunctionalSegment']):
     def words(self, add_turn_token: bool = True) -> List[str]:
-        ws = [w for seg in self for w in seg.text.split() + ([NEW_TURN] if add_turn_token else [])]
+        words, tags = self.words_with_tags(add_turn_token=add_turn_token)
+        return words
+
+    def words_with_tags(self, add_turn_token: bool = True) -> Tuple[List[str], List[str]]:
+        pairs = [
+            (w, seg.dialog_act if seg.dialog_act is not None and w != NEW_TURN else BLANK)
+            for seg in self
+            for w in seg.text.split() + ([NEW_TURN] if add_turn_token else [])
+        ]
         if add_turn_token:
-            ws = ws[:-1]
-        return ws
+            pairs = pairs[:-1]
+        words, tags = zip(*pairs)
+        return words, tags
 
-    def words_with_tags(self) -> List[Tuple[str, str]]:
-        return [(w, seg.dialog_act) for seg in self for w in seg.text.split()]
-
-    def render(self, max_turns=None, jupyter=True):
+    def render(self, max_turns=None, jupyter=True, random_seed=0):
         """Render the call as annotated with dialog acts in a Jupyter notebook"""
 
         # Render DAs options
         nlp = get_nlp()
-        rand = random.Random(0)
+        rand = random.Random(random_seed)
         colors = COLORMAP[50:]
         rand.shuffle(colors)
-        cmap = {k.upper(): col for k, col in zip(DIALOG_ACTS.values(), reversed(colors))}
+        cmap = {k.upper(): col for k, col in zip(list(DIALOG_ACTS.values()) + ['Reason'], reversed(colors))}
         displacy_opts = {"colors": cmap}
 
         # Convert text to Doc
@@ -371,7 +391,11 @@ Transformers IO specific methods.
 """
 
 
-def to_transformers_ner_dataset(call: List, continuations_allowed: bool = True) -> List[str]:
+def to_transformers_ner_dataset(
+        call: List,
+        continuations_allowed: bool = True,
+        insert_turn: bool = True
+) -> List[str]:
     """
     Convert a list of functional segments into text representations,
     used by the Transformers library to train NER models.
@@ -388,7 +412,7 @@ def to_transformers_ner_dataset(call: List, continuations_allowed: bool = True) 
             labels = [f'{CONTINUE_TAG}{prev_tag[who]}'] * len(tokens)
         else:
             labels = [f'{BEGIN_TAG}{tag}'] + [f'{CONTINUE_TAG}{tag}'] * (len(tokens) - 1)
-        if prev_spk is not None and prev_spk != who:
+        if insert_turn and prev_spk is not None and prev_spk != who:
             tokens = [NEW_TURN] + tokens
             labels = [BLANK] + labels
         for token, label in zip(tokens, labels):
