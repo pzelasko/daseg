@@ -31,7 +31,7 @@ def to_transformers_ner_format(
         max_seq_length = 99999999999999999
 
     ner_examples = []
-    for idx, call in enumerate(self.calls):
+    for idx, call in enumerate(dataset.calls):
         # This does some unnecessary back-and-forth but it's convenient
         # lines = to_transformers_ner_dataset(call)
         # zip(*[l.split() for l in lines])
