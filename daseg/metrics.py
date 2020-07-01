@@ -73,10 +73,16 @@ def compute_zhao_kawahara_metrics(true_dataset: SwdaDataset, pred_dataset: SwdaD
 
     stats, confusions = compute_labeled_span_errors(true_dataset=true_dataset, pred_dataset=pred_dataset)
     stat_sum = stats.sum(axis=0)
+    for col in 'sub ins del'.split():
+        if col not in stat_sum:
+            stat_sum[col] = 0
     DER = (stat_sum['sub'] + stat_sum['ins'] + stat_sum['del']) / stat_sum['tot']
 
     stats, _ = compute_labeled_span_errors(true_dataset=true_dataset, pred_dataset=pred_dataset, token_weighted=True)
     stat_sum = stats.sum(axis=0)
+    for col in 'sub ins del'.split():
+        if col not in stat_sum:
+            stat_sum[col] = 0
     JointWER = (stat_sum['sub'] + stat_sum['ins'] + stat_sum['del']) / stat_sum['tot']
 
     return {
