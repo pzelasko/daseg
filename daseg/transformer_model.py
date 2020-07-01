@@ -6,9 +6,6 @@ from typing import Any, Dict, Optional, List, Tuple, Union
 
 import numpy as np
 import torch
-from daseg.data import SwdaDataset
-from daseg.longformer_model import LongformerForTokenClassification
-from daseg.metrics import compute_sklearn_metrics, compute_seqeval_metrics, compute_zhao_kawahara_metrics
 from more_itertools import flatten
 from torch import nn
 from torch.nn import DataParallel
@@ -20,6 +17,11 @@ from transformers import (
     PreTrainedTokenizer,
     LongformerTokenizer
 )
+
+from daseg.data import SwdaDataset
+from daseg.dataloader import to_transformers_ner_format
+from daseg.longformer_model import LongformerForTokenClassification
+from daseg.metrics import compute_sklearn_metrics, compute_seqeval_metrics, compute_zhao_kawahara_metrics
 
 __all__ = ['TransformerModel']
 
@@ -73,7 +75,8 @@ class TransformerModel:
         labels = list(self.config.label2id.keys())
 
         if isinstance(dataset, SwdaDataset):
-            dataloader = dataset.to_transformers_ner_format(
+            dataloader = to_transformers_ner_format(
+                dataset=dataset,
                 tokenizer=self.tokenizer,
                 model_type=self.config.model_type,
                 batch_size=batch_size,

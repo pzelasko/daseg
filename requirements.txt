@@ -6,8 +6,8 @@ cytoolz
 jupyterlab
 ipython
 scikit-learn>=0.22
-torch==1.4.0
-torchvision==0.5.0
+torch==1.5.1
+torchvision==0.6.1
 git+https://github.com/pzelasko/seqeval
 pytest
 matplotlib>=3.1.3
