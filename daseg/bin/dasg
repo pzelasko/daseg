@@ -24,7 +24,7 @@ def cli():
 @click.option('-s', '--tagset', default='basic', type=click.Choice(['basic', 'general', 'full']))
 def prepare_data(
         output_dir: str,
-        swda_path: str,
+        dataset_path: str,
         window_size: Optional[int],
         window_overlap: Optional[int],
         strip_punctuation_and_lowercase: bool,
@@ -35,7 +35,7 @@ def prepare_data(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     dataset = DialogActCorpus.from_path(
-        dataset_path=swda_path,
+        dataset_path=dataset_path,
         strip_punctuation_and_lowercase=strip_punctuation_and_lowercase,
         tagset=tagset
     )
