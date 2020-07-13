@@ -2,12 +2,12 @@ from functools import lru_cache
 
 import pytest
 
-from daseg import SwdaDataset, Call, FunctionalSegment
+from daseg import DialogActCorpus, Call, FunctionalSegment
 
 
 @lru_cache(1)
 def dummy_dataset():
-    return SwdaDataset(dialogues={
+    return DialogActCorpus(dialogues={
         'call0': Call([
             FunctionalSegment('Hi, how are you?', 'Conventional-Opening', 'A'),
             FunctionalSegment("I'm fine, thanks. And you?", 'Conventional-Opening', 'B'),

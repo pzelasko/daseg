@@ -8,7 +8,7 @@ import sklearn.metrics as sklmetrics
 from Bio import pairwise2
 from more_itertools import flatten
 
-from daseg import SwdaDataset
+from daseg import DialogActCorpus
 
 
 def compute_sklearn_metrics(true_labels: List[List[str]], predictions: List[List[str]]):
@@ -42,7 +42,7 @@ def compute_seqeval_metrics(true_labels: List[List[str]], predictions: List[List
     }
 
 
-def compute_zhao_kawahara_metrics(true_dataset: SwdaDataset, pred_dataset: SwdaDataset):
+def compute_zhao_kawahara_metrics(true_dataset: DialogActCorpus, pred_dataset: DialogActCorpus):
     """
     Source:
     Zhao, T., & Kawahara, T. (2019). Joint dialog act segmentation and recognition in human conversations using
@@ -93,7 +93,8 @@ def compute_zhao_kawahara_metrics(true_dataset: SwdaDataset, pred_dataset: SwdaD
     }
 
 
-def compute_labeled_span_errors(true_dataset: SwdaDataset, pred_dataset: SwdaDataset, token_weighted: bool = False):
+def compute_labeled_span_errors(true_dataset: DialogActCorpus, pred_dataset: DialogActCorpus,
+                                token_weighted: bool = False):
     GAP_CHAR = '-'
 
     alignments = []
@@ -130,7 +131,7 @@ def compute_labeled_span_errors(true_dataset: SwdaDataset, pred_dataset: SwdaDat
     return stats, confusions
 
 
-def compute_span_errors(true_dataset: SwdaDataset, pred_dataset: SwdaDataset, token_weighted: bool = False):
+def compute_span_errors(true_dataset: DialogActCorpus, pred_dataset: DialogActCorpus, token_weighted: bool = False):
     GAP_CHAR = (-1, -1)
 
     alignments = []

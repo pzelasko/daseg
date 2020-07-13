@@ -18,7 +18,7 @@ from transformers import (
     LongformerTokenizer
 )
 
-from daseg.data import SwdaDataset
+from daseg.data import DialogActCorpus
 from daseg.dataloader import to_transformers_ner_format
 from daseg.longformer_model import LongformerForTokenClassification
 from daseg.metrics import compute_sklearn_metrics, compute_seqeval_metrics, compute_zhao_kawahara_metrics
@@ -58,7 +58,7 @@ class TransformerModel:
 
     def predict(
             self,
-            dataset: Union[SwdaDataset, DataLoader],
+            dataset: Union[DialogActCorpus, DataLoader],
             batch_size: int = 1,
             window_len: Optional[int] = None,
             window_overlap: Optional[int] = None,
@@ -74,7 +74,7 @@ class TransformerModel:
 
         labels = list(self.config.label2id.keys())
 
-        if isinstance(dataset, SwdaDataset):
+        if isinstance(dataset, DialogActCorpus):
             dataloader = to_transformers_ner_format(
                 dataset=dataset,
                 tokenizer=self.tokenizer,
@@ -137,7 +137,7 @@ class TransformerModel:
                 "sklearn_metrics": compute_sklearn_metrics(out_label_list, preds_list),
                 "seqeval_metrics": compute_seqeval_metrics(out_label_list, preds_list)
             })
-        if isinstance(dataset, SwdaDataset):
+        if isinstance(dataset, DialogActCorpus):
             results["dataset"] = predictions_to_dataset(dataset, preds_list)
             if compute_metrics:
                 results["zhao_kawahara_metrics"] = compute_zhao_kawahara_metrics(
@@ -209,7 +209,7 @@ def predict_batch_in_windows(
     return ce_loss, crf_loss, np.concatenate(logits, axis=1), batch[3].detach().cpu().numpy()
 
 
-def predictions_to_dataset(original_dataset: SwdaDataset, predictions: List[List[str]]) -> SwdaDataset:
+def predictions_to_dataset(original_dataset: DialogActCorpus, predictions: List[List[str]]) -> DialogActCorpus:
     # Does some possibly unnecessary back-and-forth, but gets the job done!
     with NamedTemporaryFile('w+') as f:
         for call, pred_tags in zip(original_dataset.calls, predictions):
@@ -220,4 +220,4 @@ def predictions_to_dataset(original_dataset: SwdaDataset, predictions: List[List
                 print(f'{w} {t}', file=f)
             print(file=f)
         f.flush()
-        return SwdaDataset.from_transformers_predictions(f.name)
+        return DialogActCorpus.from_transformers_predictions(f.name)

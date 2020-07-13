@@ -5,12 +5,12 @@ from torch.nn import CrossEntropyLoss
 from torch.utils.data import DataLoader, TensorDataset, SequentialSampler
 from transformers import PreTrainedTokenizer
 
-from daseg import SwdaDataset
+from daseg import DialogActCorpus
 from daseg.utils_ner import InputExample, convert_examples_to_features
 
 
 def to_transformers_ner_format(
-        dataset: SwdaDataset,
+        dataset: DialogActCorpus,
         tokenizer: PreTrainedTokenizer,
         model_type: str,
         batch_size: int,

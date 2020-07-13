@@ -5,7 +5,7 @@ from typing import List
 
 import streamlit as st
 
-from daseg import SwdaDataset, Call
+from daseg import DialogActCorpus, Call
 
 DATASET_PATHS = [
     '/Users/pzelasko/jhu/daseg/deps/swda/swda',
@@ -15,16 +15,16 @@ HTML_WRAPPER = """<div style="overflow-x: auto; border: 1px solid #e6e9ef; borde
 
 
 @st.cache(allow_output_mutation=True)
-def load_dataset(path) -> SwdaDataset:
+def load_dataset(path) -> DialogActCorpus:
     if path.endswith('.pkl'):
         with open(path, 'rb') as f:
             return pickle.load(f)
     else:
-        return SwdaDataset.from_path(path)
+        return DialogActCorpus.from_path(path)
 
 
-@st.cache(hash_funcs={SwdaDataset: id}, allow_output_mutation=True)
-def find_dialog_acts(dataset: SwdaDataset, act: str, left_context: int, right_context: int) -> List[Call]:
+@st.cache(hash_funcs={DialogActCorpus: id}, allow_output_mutation=True)
+def find_dialog_acts(dataset: DialogActCorpus, act: str, left_context: int, right_context: int) -> List[Call]:
     return list(
         dataset.search(dialog_act=act, left_segments_context=left_context, right_segments_context=right_context))
 

@@ -5,7 +5,7 @@ from typing import Optional
 
 import click
 
-from daseg import SwdaDataset, TransformerModel
+from daseg import DialogActCorpus, TransformerModel
 
 
 @click.group()
@@ -34,7 +34,7 @@ def prepare_data(
 ):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    dataset = SwdaDataset.from_path(
+    dataset = DialogActCorpus.from_path(
         swda_path=swda_path,
         strip_punctuation_and_lowercase=strip_punctuation_and_lowercase,
         original_43_tagset=not extended_swda_tagset
@@ -69,7 +69,7 @@ def evaluate(
         extended_swda_tagset,
         dont_propagate_context
 ):
-    dataset = SwdaDataset.from_path(
+    dataset = DialogActCorpus.from_path(
         swda_path,
         splits=[split],
         strip_punctuation_and_lowercase=strip_punctuation_and_lowercase,

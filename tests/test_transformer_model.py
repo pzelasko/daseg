@@ -3,13 +3,13 @@ from functools import lru_cache
 import pytest
 from transformers import AutoConfig, AutoTokenizer, AutoModelForTokenClassification
 
-from daseg import SwdaDataset, Call, FunctionalSegment, TransformerModel
+from daseg import DialogActCorpus, Call, FunctionalSegment, TransformerModel
 from daseg.data import NEW_TURN
 
 
 @lru_cache(1)
 def dummy_dataset():
-    return SwdaDataset(dialogues={
+    return DialogActCorpus(dialogues={
         'call0': Call([
             FunctionalSegment('Hi, how are you?', 'Conventional-Opening', 'A'),
             FunctionalSegment("I'm fine, thanks. And you?", 'Conventional-Opening', 'B'),

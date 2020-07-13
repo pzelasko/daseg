@@ -1,10 +1,10 @@
 """
 Utilities for retrieving, manipulating and storing the dialog act data.
 """
-import random
 import re
 from functools import partial
 from itertools import groupby, chain
+from pathlib import Path
 from typing import NamedTuple, Tuple, List, FrozenSet, Iterable, Dict, Optional, Callable, Mapping
 
 from cytoolz.itertoolz import sliding_window
@@ -14,10 +14,11 @@ from spacy.tokens.span import Span
 from swda import Transcript, CorpusReader
 from tqdm.autonotebook import tqdm
 
-from daseg.resources import DIALOG_ACTS, COLORMAP, get_nlp, to_swda_43_labels
+from daseg.resources import SWDA_DIALOG_ACTS, COLORMAP, get_nlp, to_swda_43_labels, MRDA_BASIC_DIALOG_ACTS, \
+    MRDA_GENERAL_DIALOG_ACTS, MRDA_FULL_DIALOG_ACTS
 from daseg.splits import SWDA_SPLITS
 
-__all__ = ['FunctionalSegment', 'Call', 'SwdaDataset']
+__all__ = ['FunctionalSegment', 'Call', 'DialogActCorpus']
 
 # Symbol used in SWDA to indicate that the dialog act is the same as in previous turn
 
@@ -38,17 +39,75 @@ BLANK = 'O'
 NEW_TURN = '<TURN>'
 
 
-class SwdaDataset:
+class DialogActCorpus:
     def __init__(self, dialogues: Dict[str, 'Call']):
         self.dialogues = dialogues
 
     @staticmethod
-    def from_path(
+    def from_mrda_path(
+            mrda_path: str,
+            splits=('train', 'dev', 'test'),
+            strip_punctuation_and_lowercase: bool = False,
+            tagset: str = 'basic'
+    ) -> 'DialogActCorpus':
+        # The code is not super clean, I mostly copied and adapted the usage from
+        # https://github.com/NathanDuran/MRDA-Corpus
+        from mrda.mrda_utilities import load_text_data, get_da_maps
+        from mrda.process_transcript import process_transcript
+
+        da_lookup = {
+            'basic': MRDA_BASIC_DIALOG_ACTS,
+            'general': MRDA_GENERAL_DIALOG_ACTS,
+            'full': MRDA_FULL_DIALOG_ACTS
+        }[tagset]
+
+        mrda_path = Path(mrda_path)
+        archive_dir = mrda_path / 'mrda_archive'
+        data_dir = mrda_path / 'mrda_data'
+        metadata_dir = data_dir / 'metadata'
+
+        # Excluded dialogue act tags i.e. x = Non-verbal and z = Non-labeled
+        excluded_tags = ['x', 'z']
+        # Excluded characters for ignoring i.e. '=='
+        excluded_chars = {'<', '>', '(', ')', '-', '#', '|', '=', '@'}
+
+        da_map = get_da_maps(metadata_dir / 'basic_da_map.txt')
+        transcript_list = (archive_dir / 'transcripts').glob('*')
+
+        dialogues = {}
+        for meeting in transcript_list:
+            # Get the id for this meeting
+            meeting_name = str(meeting.name.split('.')[0])
+            # Get the transcript and database file
+            transcript = load_text_data(archive_dir / 'transcripts' / f'{meeting_name}.trans', verbose=False)
+            database = load_text_data(archive_dir / 'database' / f'{meeting_name}.dadb', verbose=False)
+            # Process the utterances and create a dialogue object
+            raw_dialogue = process_transcript(transcript, database, da_map, excluded_chars, excluded_tags)
+            call = Call([
+                FunctionalSegment(
+                    text=utterance.text,
+                    dialog_act=da_lookup[
+                        {
+                            'basic': utterance.basic_da_label,
+                            'general': utterance.general_da_label,
+                            'full': utterance.full_da_label
+                        }[tagset]
+                    ],
+                    speaker=utterance.speaker
+                )
+                for utterance in raw_dialogue.utterances
+            ])
+            dialogues[meeting_name] = call
+
+        return DialogActCorpus(dialogues)
+
+    @staticmethod
+    def from_swda_path(
             swda_path: str,
             splits=('train', 'dev', 'test'),
             strip_punctuation_and_lowercase: bool = False,
             original_43_tagset: bool = True,
-    ) -> 'SwdaDataset':
+    ) -> 'DialogActCorpus':
         cr = CorpusReader(swda_path)
         selected_calls = frozenset(chain.from_iterable(SWDA_SPLITS[split] for split in splits))
         dialogues = dict(
@@ -64,10 +123,10 @@ class SwdaDataset:
                 )
             )
         )
-        return SwdaDataset(dialogues)
+        return DialogActCorpus(dialogues)
 
     @staticmethod
-    def from_transformers_predictions(preds_file_path: str) -> 'SwdaDataset':
+    def from_transformers_predictions(preds_file_path: str) -> 'DialogActCorpus':
         return read_transformers_preds(preds_file_path)
 
     @property
@@ -125,13 +184,13 @@ class SwdaDataset:
             ).items()
         }
 
-    def train_dev_test_split(self) -> Dict[str, 'SwdaDataset']:
+    def train_dev_test_split(self) -> Dict[str, 'DialogActCorpus']:
         return {name: self.subset(indices) for name, indices in SWDA_SPLITS.items()}
 
-    def subset(self, selected_ids: Iterable[str]) -> 'SwdaDataset':
+    def subset(self, selected_ids: Iterable[str]) -> 'DialogActCorpus':
         selected_ids = set(selected_ids)
         dialogues = {call_id: segments for call_id, segments in self.dialogues.items() if call_id in selected_ids}
-        return SwdaDataset(dialogues)
+        return DialogActCorpus(dialogues)
 
     def dump_for_transformers_ner(
             self,
@@ -193,27 +252,31 @@ class Call(List['FunctionalSegment']):
         words, tags = zip(*pairs)
         return list(words), list(tags)
 
-    def render(self, max_turns=None, jupyter=True, random_seed=0):
+    def render(self, max_turns=None, jupyter=True, tagset=SWDA_DIALOG_ACTS.values(), random_seed=0):
         """Render the call as annotated with dialog acts in a Jupyter notebook"""
 
         # Render DAs options
         nlp = get_nlp()
-        rand = random.Random(random_seed)
-        colors = COLORMAP[50:]
-        rand.shuffle(colors)
-        cmap = {k.upper(): col for k, col in zip(list(DIALOG_ACTS.values()) + ['Reason'], reversed(colors))}
+        # rand = random.Random(random_seed)
+        colors = COLORMAP  # [50:]
+        # rand.shuffle(colors)
+        cmap = {k.upper(): col for k, col in zip(list(tagset) + ['Reason'], colors)}
         displacy_opts = {"colors": cmap}
+        labels = 'ABCDEFGHIJKLMNOPRSTUVWXYZ'
 
         # Convert text to Doc
         rendered_htmls = []
-        speakers = {'A:': 'B:', 'B:': 'A:'}
-        spk = 'A:'
-        for turn_no, (key, group) in enumerate(groupby(self, key=lambda tpl: tpl[2])):
+        speakers = []
+        for turn_no, (speaker, group) in enumerate(groupby(self, key=lambda segment: segment.speaker)):
+            if speaker not in speakers:
+                speakers.append(speaker)
+
             if max_turns is not None and turn_no > max_turns:
                 break
+
             group = list(group)
             words = ' '.join(t for t, _, _, _ in group).split()
-            doc = Doc(nlp.vocab, words=[spk] + words)
+            doc = Doc(nlp.vocab, words=[labels[speakers.index(speaker)]] + words)
 
             ents = []
             begin = 1
@@ -225,8 +288,6 @@ class Call(List['FunctionalSegment']):
             doc.ents = ents
 
             rendered_htmls.append(displacy.render(doc, style="ent", jupyter=jupyter, options=displacy_opts))
-
-            spk = speakers[spk]
         return rendered_htmls
 
     @property
@@ -283,7 +344,7 @@ def parse_transcript(
         original_43_tagset: bool = True
 ) -> Tuple[str, Call]:
     normalize_text = create_text_normalizer(strip_punctuation_and_lowercase)
-    dialog_acts = to_swda_43_labels(DIALOG_ACTS) if original_43_tagset else DIALOG_ACTS
+    dialog_acts = to_swda_43_labels(SWDA_DIALOG_ACTS) if original_43_tagset else SWDA_DIALOG_ACTS
     call_id = decode_swda_id(swda_tr)
     segments = (
         FunctionalSegment(
@@ -386,7 +447,7 @@ def decode_act(tag):
     return tag
 
 
-def read_transformers_preds(preds_path: str) -> 'SwdaDataset':
+def read_transformers_preds(preds_path: str) -> 'DialogActCorpus':
     lines = (l.strip() for l in open(preds_path))
 
     def calls(lines):
@@ -444,7 +505,7 @@ def read_transformers_preds(preds_path: str) -> 'SwdaDataset':
             speaker = {'A': 'B', 'B': 'A'}[speaker]
         resolved_calls.append(Call(resolved_segments))
     # TODO: resolve correct call ids
-    return SwdaDataset({str(i): c for i, c in zip(range(1000000), resolved_calls)})
+    return DialogActCorpus({str(i): c for i, c in zip(range(1000000), resolved_calls)})
 
 
 def create_text_normalizer(strip_punctuation_and_lowercase: bool = False) -> Callable[[str], str]:
