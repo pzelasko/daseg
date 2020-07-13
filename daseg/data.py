@@ -14,7 +14,7 @@ from spacy.tokens.span import Span
 from swda import Transcript, CorpusReader
 from tqdm.autonotebook import tqdm
 
-from daseg.resources import SWDA_DIALOG_ACTS, COLORMAP, get_nlp, to_swda_43_labels, MRDA_BASIC_DIALOG_ACTS, \
+from daseg.resources import SWDA_DIALOG_ACTS, COLORMAP, get_nlp, to_swda_42_labels, MRDA_BASIC_DIALOG_ACTS, \
     MRDA_GENERAL_DIALOG_ACTS, MRDA_FULL_DIALOG_ACTS
 from daseg.splits import SWDA_SPLITS
 
@@ -43,6 +43,30 @@ class DialogActCorpus:
     def __init__(self, dialogues: Dict[str, 'Call'], splits: Optional[Dict[str, List[str]]] = None):
         self.dialogues = dialogues
         self.splits = splits
+
+    @staticmethod
+    def from_path(
+            dataset_path: str,
+            splits=('train', 'dev', 'test'),
+            strip_punctuation_and_lowercase: bool = False,
+            tagset: str = 'basic'
+    ):
+        """Infers whether the dataset is SWDA or MRDA and loads it."""
+        if 'swda' in dataset_path:
+            return DialogActCorpus.from_swda_path(
+                swda_path=dataset_path,
+                splits=splits,
+                strip_punctuation_and_lowercase=strip_punctuation_and_lowercase,
+                tagset=tagset
+            )
+        if 'mrda' in dataset_path:
+            return DialogActCorpus.from_mrda_path(
+                mrda_path=dataset_path,
+                splits=splits,
+                strip_punctuation_and_lowercase=strip_punctuation_and_lowercase,
+                tagset=tagset
+            )
+        raise ValueError("Cannot infer the corpus from the path!")
 
     @staticmethod
     def from_mrda_path(
@@ -119,7 +143,7 @@ class DialogActCorpus:
             swda_path: str,
             splits=('train', 'dev', 'test'),
             strip_punctuation_and_lowercase: bool = False,
-            original_43_tagset: bool = True,
+            tagset: str = 'basic'
     ) -> 'DialogActCorpus':
         cr = CorpusReader(swda_path)
         selected_calls = frozenset(chain.from_iterable(SWDA_SPLITS[split] for split in splits))
@@ -128,7 +152,7 @@ class DialogActCorpus:
                 partial(
                     parse_swda_transcript,
                     strip_punctuation_and_lowercase=strip_punctuation_and_lowercase,
-                    original_43_tagset=original_43_tagset
+                    original_42_tagset=tagset != 'full'
                 ),
                 filter(
                     lambda tr: decode_swda_id(tr) in selected_calls,
@@ -360,10 +384,10 @@ class FunctionalSegment(NamedTuple):
 def parse_swda_transcript(
         swda_tr: Transcript,
         strip_punctuation_and_lowercase: bool = False,
-        original_43_tagset: bool = True
+        original_42_tagset: bool = True
 ) -> Tuple[str, Call]:
     normalize_text = create_text_normalizer(strip_punctuation_and_lowercase)
-    dialog_acts = to_swda_43_labels(SWDA_DIALOG_ACTS) if original_43_tagset else SWDA_DIALOG_ACTS
+    dialog_acts = to_swda_42_labels(SWDA_DIALOG_ACTS) if original_42_tagset else SWDA_DIALOG_ACTS
     call_id = decode_swda_id(swda_tr)
     segments = (
         FunctionalSegment(

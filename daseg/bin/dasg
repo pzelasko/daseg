@@ -15,13 +15,13 @@ def cli():
 
 @cli.command()
 @click.argument('output_dir', type=click.Path())
-@click.option('--swda-path', default='deps/swda/swda', type=click.Path(exists=True, file_okay=False))
+@click.option('--dataset-path', default='deps/swda/swda', type=click.Path(exists=True, file_okay=False))
 @click.option('--window-size', type=int, default=None)
 @click.option('--window-overlap', type=int, default=None)
 @click.option('-p', '--strip-punctuation-and-lowercase', is_flag=True)
 @click.option('-c', '--continuations-allowed', is_flag=True)
 @click.option('-t', '--window-test', is_flag=True)
-@click.option('-e', '--extended-swda-tagset', is_flag=True)
+@click.option('-s', '--tagset', default='basic', type=click.Choice(['basic', 'general', 'full']))
 def prepare_data(
         output_dir: str,
         swda_path: str,
@@ -30,14 +30,14 @@ def prepare_data(
         strip_punctuation_and_lowercase: bool,
         continuations_allowed: bool,
         window_test: bool,
-        extended_swda_tagset: bool
+        tagset: str
 ):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     dataset = DialogActCorpus.from_path(
-        swda_path=swda_path,
+        dataset_path=swda_path,
         strip_punctuation_and_lowercase=strip_punctuation_and_lowercase,
-        original_43_tagset=not extended_swda_tagset
+        tagset=tagset
     )
     for split_name, split_dataset in dataset.train_dev_test_split().items():
         split_dataset.dump_for_transformers_ner(
@@ -50,32 +50,32 @@ def prepare_data(
 
 @cli.command()
 @click.argument('model_path', type=click.Path(exists=True, file_okay=False))
-@click.option('--swda-path', default='deps/swda/swda', type=click.Path(exists=True, file_okay=False))
+@click.option('--dataset-path', default='deps/swda/swda', type=click.Path(exists=True, file_okay=False))
 @click.option('--split', type=click.Choice(['train', 'dev', 'test']), default='test')
 @click.option('--batch_size', default=4, type=int)
 @click.option('--window_len', default=None, type=int)
 @click.option('--device', default='cpu', type=str)
 @click.option('-p', '--strip-punctuation-and-lowercase', is_flag=True)
-@click.option('-e', '--extended-swda-tagset', is_flag=True)
+@click.option('-s', '--tagset', default='basic', type=click.Choice(['basic', 'general', 'full']))
 @click.option('-d', '--dont-propagate-context', is_flag=True)
 def evaluate(
-        model_path,
-        swda_path,
-        split,
-        batch_size,
-        window_len,
-        device,
-        strip_punctuation_and_lowercase,
-        extended_swda_tagset,
-        dont_propagate_context
+        model_path: str,
+        swda_path: str,
+        split: str,
+        batch_size: int,
+        window_len: int,
+        device: str,
+        strip_punctuation_and_lowercase: bool,
+        tagset: str,
+        dont_propagate_context: bool
 ):
     dataset = DialogActCorpus.from_path(
         swda_path,
         splits=[split],
         strip_punctuation_and_lowercase=strip_punctuation_and_lowercase,
-        original_43_tagset=not extended_swda_tagset
+        tagset=tagset
     )
-    model = TransformerModel.from_path(model_path, device=device)
+    model = TransformerModel.from_path(Path(model_path), device=device)
     results = model.predict(
         dataset,
         batch_size=batch_size,

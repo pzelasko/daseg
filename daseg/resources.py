@@ -17,7 +17,7 @@ def get_tokenizer():
     return nlp.Defaults.create_tokenizer(nlp)
 
 
-def to_swda_43_labels(dialog_acts: Dict[str, str]) -> Dict[str, str]:
+def to_swda_42_labels(dialog_acts: Dict[str, str]) -> Dict[str, str]:
     reduced_dialog_acts = dialog_acts.copy()
     reduced_dialog_acts.update({
         'sd^e': 'Other',
@@ -105,7 +105,7 @@ MRDA_GENERAL_DIALOG_ACTS = {
     '%': 'Interrupted-Abandoned-Uninterpretable',
     'fg': 'Floor-Grabber',
     'qw': 'Wh-Question',
-    'h': 'Hold-Before-Answer/Agreement',
+    'h': 'Hold-Before-Answer-Agreement',
     'qrr': 'Or-clause',
     'qh': 'Rhetorical-question',
     'qr': 'Or-question',
