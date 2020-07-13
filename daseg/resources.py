@@ -92,7 +92,7 @@ SWDA_DIALOG_ACTS = {
 MRDA_BASIC_DIALOG_ACTS = {
     'S': 'Statement',
     'B': 'Backchannel',
-    'D': 'Disrupton',
+    'D': 'Disruption',
     'F': 'Floor-grabber',
     'Q': 'Question'
 }

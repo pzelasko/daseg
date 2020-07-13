@@ -40,8 +40,9 @@ NEW_TURN = '<TURN>'
 
 
 class DialogActCorpus:
-    def __init__(self, dialogues: Dict[str, 'Call']):
+    def __init__(self, dialogues: Dict[str, 'Call'], splits: Optional[Dict[str, List[str]]] = None):
         self.dialogues = dialogues
+        self.splits = splits
 
     @staticmethod
     def from_mrda_path(
@@ -50,10 +51,12 @@ class DialogActCorpus:
             strip_punctuation_and_lowercase: bool = False,
             tagset: str = 'basic'
     ) -> 'DialogActCorpus':
-        # The code is not super clean, I mostly copied and adapted the usage from
+        # (PZ) The code below is not super clean, I mostly copied and adapted the usage from
         # https://github.com/NathanDuran/MRDA-Corpus
         from mrda.mrda_utilities import load_text_data, get_da_maps
         from mrda.process_transcript import process_transcript
+
+        normalize_text = create_text_normalizer(strip_punctuation_and_lowercase)
 
         da_lookup = {
             'basic': MRDA_BASIC_DIALOG_ACTS,
@@ -65,6 +68,16 @@ class DialogActCorpus:
         archive_dir = mrda_path / 'mrda_archive'
         data_dir = mrda_path / 'mrda_data'
         metadata_dir = data_dir / 'metadata'
+
+        # Load training, test, validation and development splits
+        split_to_meetings = {
+            'train': load_text_data(metadata_dir / 'train_split.txt'),
+            'dev': load_text_data(metadata_dir / 'val_split.txt'),
+            'test': load_text_data(metadata_dir / 'test_split.txt')
+        }
+        meetings_to_read = []
+        for split in splits:
+            meetings_to_read.extend(split_to_meetings[split])
 
         # Excluded dialogue act tags i.e. x = Non-verbal and z = Non-labeled
         excluded_tags = ['x', 'z']
@@ -85,7 +98,7 @@ class DialogActCorpus:
             raw_dialogue = process_transcript(transcript, database, da_map, excluded_chars, excluded_tags)
             call = Call([
                 FunctionalSegment(
-                    text=utterance.text,
+                    text=normalize_text(utterance.text),
                     dialog_act=da_lookup[
                         {
                             'basic': utterance.basic_da_label,
@@ -99,7 +112,7 @@ class DialogActCorpus:
             ])
             dialogues[meeting_name] = call
 
-        return DialogActCorpus(dialogues)
+        return DialogActCorpus(dialogues, splits=split_to_meetings)
 
     @staticmethod
     def from_swda_path(
@@ -113,7 +126,7 @@ class DialogActCorpus:
         dialogues = dict(
             map(
                 partial(
-                    parse_transcript,
+                    parse_swda_transcript,
                     strip_punctuation_and_lowercase=strip_punctuation_and_lowercase,
                     original_43_tagset=original_43_tagset
                 ),
@@ -151,6 +164,9 @@ class DialogActCorpus:
     def vocabulary(self) -> List[str]:
         return sorted(set(w for call in self.calls for segment in call for w in segment.text.split()))
 
+    def __len__(self) -> int:
+        return len(self.dialogues)
+
     def search(
             self,
             dialog_act: str,
@@ -185,6 +201,12 @@ class DialogActCorpus:
         }
 
     def train_dev_test_split(self) -> Dict[str, 'DialogActCorpus']:
+        if self.splits is not None:
+            return {
+                split: [self.dialogues[call_id] for call_id in call_ids]
+                for split, call_ids in self.splits.items()
+            }
+        # Otherwise, assume this is SWDA
         return {name: self.subset(indices) for name, indices in SWDA_SPLITS.items()}
 
     def subset(self, selected_ids: Iterable[str]) -> 'DialogActCorpus':
@@ -335,7 +357,7 @@ class FunctionalSegment(NamedTuple):
     is_continuation: bool = False
 
 
-def parse_transcript(
+def parse_swda_transcript(
         swda_tr: Transcript,
         strip_punctuation_and_lowercase: bool = False,
         original_43_tagset: bool = True
