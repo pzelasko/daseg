@@ -9,7 +9,7 @@ mkdir -p deps
 # Obtain the swda repo and make it a detectable python package
 if [ ! -d deps/swda ]; then
   git clone https://github.com/cgpotts/swda deps/swda
-  cat << EOM > deps/swda/setup.py
+  cat <<EOM >deps/swda/setup.py
 from setuptools import setup, find_packages
 setup(
     name='swda',
@@ -31,7 +31,7 @@ if [ ! -d deps/mrda ]; then
   mv *.py mrda/
   touch __init__.py
   touch mrda/__init__.py
-  cat << EOM > setup.py
+  cat <<EOM >setup.py
 from setuptools import setup, find_packages
 setup(
     name='mrda',
@@ -45,4 +45,3 @@ fi
 
 # Grab a spacy model
 python -m spacy download en_core_web_sm
-
