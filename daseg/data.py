@@ -257,8 +257,7 @@ class Call(List['FunctionalSegment']):
 
         # Render DAs options
         nlp = get_nlp()
-        colors = COLORMAP  # [50:]
-        cmap = {k.upper(): col for k, col in zip(list(tagset), colors)}
+        cmap = {k.upper(): col for k, col in zip(list(tagset), COLORMAP)}
         displacy_opts = {"colors": cmap}
         labels = 'ABCDEFGHIJKLMNOPRSTUVWXYZ'
 
