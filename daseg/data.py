@@ -227,7 +227,7 @@ class DialogActCorpus:
     def train_dev_test_split(self) -> Dict[str, 'DialogActCorpus']:
         if self.splits is not None:
             return {
-                split: [self.dialogues[call_id] for call_id in call_ids]
+                split: self.subset(call_ids)
                 for split, call_ids in self.splits.items()
             }
         # Otherwise, assume this is SWDA
