@@ -20,6 +20,7 @@ import glob
 import logging
 import os
 import random
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -44,6 +45,7 @@ from daseg.data import NEW_TURN
 from daseg.longformer_model import LongformerForTokenClassification
 from daseg.recurrent_model import RNNForTokenClassification
 from daseg.reformer_model import ReformerForTokenClassification
+from daseg.slack import SlackNotifier
 from daseg.utils_ner import convert_examples_to_features, get_labels, read_examples_from_file
 from daseg.xlnet import XLNetCRFForTokenClassification
 
@@ -61,6 +63,8 @@ MODEL_CLASSES = tuple(m.model_type for m in MODEL_MAPPING)
 
 TOKENIZER_ARGS = ["do_lower_case", "strip_accents", "keep_accents", "use_fast"]
 
+slack = SlackNotifier(' '.join(sys.argv))
+
 
 def set_seed(args):
     random.seed(args.seed)
@@ -72,6 +76,7 @@ def set_seed(args):
 
 def train(args, train_dataset, model, tokenizer, labels, pad_token_label_id):
     """ Train the model """
+    slack.write('Starting training.').push()
     if args.local_rank in [-1, 0]:
         tb_writer = SummaryWriter()
 
@@ -163,7 +168,7 @@ def train(args, train_dataset, model, tokenizer, labels, pad_token_label_id):
         epochs_trained, int(args.num_train_epochs), desc="Epoch", disable=args.local_rank not in [-1, 0]
     )
     set_seed(args)  # Added here for reproductibility
-    for _ in train_iterator:
+    for epoch in train_iterator:
         epoch_iterator = tqdm(train_dataloader, desc="Iteration", disable=args.local_rank not in [-1, 0])
         for step, batch in enumerate(epoch_iterator):
 
@@ -215,19 +220,23 @@ def train(args, train_dataset, model, tokenizer, labels, pad_token_label_id):
 
                 if args.local_rank in [-1, 0] and args.logging_steps > 0 and global_step % args.logging_steps == 0:
                     # Log metrics
-                    if (
-                            args.local_rank == -1 and args.evaluate_during_training
-                    ):  # Only evaluate when single GPU otherwise metrics may not average well
-                        results, _ = evaluate(args, model, tokenizer, labels, pad_token_label_id, mode="dev")
-                        for key, value in results.items():
-                            tb_writer.add_scalar("eval_{}".format(key), value, global_step)
-                    tb_writer.add_scalar("lr", scheduler.get_lr()[0], global_step)
-                    tb_writer.add_scalar("loss", (tr_loss - logging_loss) / args.logging_steps, global_step)
-                    tb_writer.add_scalar("ce_loss", (ce_loss - logging_ce_loss) / args.logging_steps, global_step)
-                    tb_writer.add_scalar("crf_loss", (ce_loss - logging_crf_loss) / args.logging_steps, global_step)
-                    logging_loss = tr_loss
-                    logging_ce_loss = tr_ce_loss
-                    logging_crf_loss = tr_crf_loss
+                    with slack:
+                        if (
+                                args.local_rank == -1 and args.evaluate_during_training
+                        ):  # Only evaluate when single GPU otherwise metrics may not average well
+                            results, _ = evaluate(args, model, tokenizer, labels, pad_token_label_id, mode="dev")
+                            slack.write(f'Epoch: {epoch} :: Step: {global_step}')
+                            for key, value in results.items():
+                                tb_writer.add_scalar("eval_{}".format(key), value, global_step)
+                                slack.write(f'eval_{key} = {value}')
+                        tb_writer.add_scalar("lr", scheduler.get_lr()[0], global_step)
+                        tb_writer.add_scalar("loss", (tr_loss - logging_loss) / args.logging_steps, global_step)
+                        slack.write(f'loss = {(tr_loss - logging_loss) / args.logging_steps}')
+                        tb_writer.add_scalar("ce_loss", (ce_loss - logging_ce_loss) / args.logging_steps, global_step)
+                        tb_writer.add_scalar("crf_loss", (ce_loss - logging_crf_loss) / args.logging_steps, global_step)
+                        logging_loss = tr_loss
+                        logging_ce_loss = tr_ce_loss
+                        logging_crf_loss = tr_crf_loss
 
                 if args.local_rank in [-1, 0] and args.save_steps > 0 and global_step % args.save_steps == 0:
                     # Save model checkpoint
@@ -615,6 +624,8 @@ def main():
     if args.do_train:
         train_dataset = load_and_cache_examples(args, tokenizer, labels, pad_token_label_id, mode="train")
         global_step, tr_loss = train(args, train_dataset, model, tokenizer, labels, pad_token_label_id)
+        with slack:
+            slack.write(f'Training finished! :: global step = {global_step} :: average loss = {tr_loss}')
         logger.info(" global_step = %s, average loss = %s", global_step, tr_loss)
 
     # Saving best-practices: if you use defaults names for the model, you can reload it using from_pretrained()

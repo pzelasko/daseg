@@ -28,6 +28,11 @@ def to_swda_42_labels(dialog_acts: Dict[str, str]) -> Dict[str, str]:
     return reduced_dialog_acts
 
 
+SEGMENT_TAG = 's'
+SEGMENTATION_ONLY_ACTS = {
+    SEGMENT_TAG: 'Segment'
+}
+
 SWDA_DIALOG_ACTS = {
     'sd': 'Statement-non-opinion',
     'b': 'Acknowledge-Backchannel',

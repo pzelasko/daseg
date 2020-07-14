@@ -15,7 +15,7 @@ from swda import Transcript, CorpusReader
 from tqdm.autonotebook import tqdm
 
 from daseg.resources import SWDA_DIALOG_ACTS, COLORMAP, get_nlp, to_swda_42_labels, MRDA_BASIC_DIALOG_ACTS, \
-    MRDA_GENERAL_DIALOG_ACTS, MRDA_FULL_DIALOG_ACTS
+    MRDA_GENERAL_DIALOG_ACTS, MRDA_FULL_DIALOG_ACTS, SEGMENTATION_ONLY_ACTS, SEGMENT_TAG
 from daseg.splits import SWDA_SPLITS
 
 __all__ = ['FunctionalSegment', 'Call', 'DialogActCorpus']
@@ -85,7 +85,8 @@ class DialogActCorpus:
         da_lookup = {
             'basic': MRDA_BASIC_DIALOG_ACTS,
             'general': MRDA_GENERAL_DIALOG_ACTS,
-            'full': MRDA_FULL_DIALOG_ACTS
+            'full': MRDA_FULL_DIALOG_ACTS,
+            'segmentation': SEGMENTATION_ONLY_ACTS
         }[tagset]
 
         mrda_path = Path(mrda_path)
@@ -127,7 +128,8 @@ class DialogActCorpus:
                         {
                             'basic': utterance.basic_da_label,
                             'general': utterance.general_da_label,
-                            'full': utterance.full_da_label
+                            'full': utterance.full_da_label,
+                            'segmentation': SEGMENT_TAG
                         }[tagset]
                     ],
                     speaker=utterance.speaker
@@ -152,7 +154,7 @@ class DialogActCorpus:
                 partial(
                     parse_swda_transcript,
                     strip_punctuation_and_lowercase=strip_punctuation_and_lowercase,
-                    original_42_tagset=tagset != 'full'
+                    tagset=tagset
                 ),
                 filter(
                     lambda tr: decode_swda_id(tr) in selected_calls,
@@ -384,15 +386,19 @@ class FunctionalSegment(NamedTuple):
 def parse_swda_transcript(
         swda_tr: Transcript,
         strip_punctuation_and_lowercase: bool = False,
-        original_42_tagset: bool = True
+        tagset: str = 'basic'
 ) -> Tuple[str, Call]:
     normalize_text = create_text_normalizer(strip_punctuation_and_lowercase)
-    dialog_acts = to_swda_42_labels(SWDA_DIALOG_ACTS) if original_42_tagset else SWDA_DIALOG_ACTS
+    dialog_acts = {
+        'basic': to_swda_42_labels(SWDA_DIALOG_ACTS),
+        'custom': SWDA_DIALOG_ACTS,
+        'segmentation': SEGMENTATION_ONLY_ACTS
+    }[tagset]
     call_id = decode_swda_id(swda_tr)
     segments = (
         FunctionalSegment(
             text=normalize_text(' '.join(utt.text_words(filter_disfluency=True))),
-            dialog_act=lookup_or_fix(utt.act_tag, dialog_acts=dialog_acts),
+            dialog_act=lookup_or_fix(utt.act_tag if tagset != 'segmentation' else SEGMENT_TAG, dialog_acts=dialog_acts),
             speaker=utt.caller
         ) for utt in swda_tr.utterances
     )
