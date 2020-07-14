@@ -15,15 +15,18 @@ from transformers import (
     AutoTokenizer,
     AutoModelForTokenClassification,
     PreTrainedTokenizer,
-    LongformerTokenizer
+    LongformerTokenizer,
+    ReformerTokenizer
 )
 
 from daseg.data import DialogActCorpus
 from daseg.dataloader import to_transformers_ner_format
 from daseg.longformer_model import LongformerForTokenClassification
 from daseg.metrics import compute_sklearn_metrics, compute_seqeval_metrics, compute_zhao_kawahara_metrics
+from daseg.reformer_model import ReformerForTokenClassification
 
 __all__ = ['TransformerModel']
+
 
 
 class TransformerModel:
@@ -33,6 +36,9 @@ class TransformerModel:
         if 'longformer' in str(model_dir) or is_longformer:
             model_cls = LongformerForTokenClassification
             tok_cls = LongformerTokenizer
+        elif 'reformer' in str(model_dir):
+            model_cls = ReformerForTokenClassification
+            tok_cls = ReformerTokenizer
         else:
             model_cls = AutoModelForTokenClassification
             tok_cls = AutoTokenizer

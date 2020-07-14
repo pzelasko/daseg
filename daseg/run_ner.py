@@ -43,6 +43,7 @@ from daseg import TransformerModel
 from daseg.data import NEW_TURN
 from daseg.longformer_model import LongformerForTokenClassification
 from daseg.recurrent_model import RNNForTokenClassification
+from daseg.reformer_model import ReformerForTokenClassification
 from daseg.utils_ner import convert_examples_to_features, get_labels, read_examples_from_file
 from daseg.xlnet import XLNetCRFForTokenClassification
 
@@ -499,7 +500,8 @@ def main():
                         help="When specified, CRF will be performed over all windows predictions instead of "
                              "over each window individually (works only with nonzero --eval_window_size).")
     parser.add_argument('--use_longformer', action='store_true', help='Use the Longformer model (override others)')
-    parser.add_argument('--use_rnn', action='store_true', help='Use the RNN model (override others)')
+    parser.add_argument('--use_reformer', action='store_true', help='Use the Reformer model')
+    parser.add_argument('--use_rnn', action='store_true', help='Use the RNN model')
     parser.add_argument('--random_init', action='store_true', help='Do not use any pretrained weights')
 
     args = parser.parse_args()
@@ -703,7 +705,8 @@ def load_model(args, config, path: Optional[str] = None):
 
     model_class = (
         # LongformerCRFForTokenClassification if (args.use_longformer and args.use_crf)
-        LongformerForTokenClassification if args.use_longformer
+        ReformerForTokenClassification if args.use_reformer
+        else LongformerForTokenClassification if args.use_longformer
         else XLNetCRFForTokenClassification if args.use_crf
         else AutoModelForTokenClassification
     )
