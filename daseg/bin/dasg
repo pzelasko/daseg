@@ -60,7 +60,7 @@ def prepare_data(
 @click.option('-d', '--dont-propagate-context', is_flag=True)
 def evaluate(
         model_path: str,
-        swda_path: str,
+        dataset_path: str,
         split: str,
         batch_size: int,
         window_len: int,
@@ -70,7 +70,7 @@ def evaluate(
         dont_propagate_context: bool
 ):
     dataset = DialogActCorpus.from_path(
-        swda_path,
+        dataset_path,
         splits=[split],
         strip_punctuation_and_lowercase=strip_punctuation_and_lowercase,
         tagset=tagset
