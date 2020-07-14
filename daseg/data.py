@@ -128,7 +128,11 @@ class DialogActCorpus:
                         {
                             'basic': utterance.basic_da_label,
                             'general': utterance.general_da_label,
-                            'full': utterance.full_da_label,
+                            'full': (  # in the paper they say "Rising Tone" is not a dialog act
+                                utterance.full_da_label
+                                if utterance.full_da_label != 'rt'
+                                else utterance.general_da_label
+                            ),
                             'segmentation': SEGMENT_TAG
                         }[tagset]
                     ],
