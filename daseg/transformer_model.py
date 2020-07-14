@@ -44,10 +44,10 @@ class TransformerModel:
             tok_cls = AutoTokenizer
         return TransformerModel(
             tokenizer=tok_cls.from_pretrained(
-                model_dir,
+                str(model_dir),
                 **json.load(open(Path(model_dir) / 'tokenizer_config.json'))
             ),
-            model=model_cls.from_pretrained(model_dir),
+            model=model_cls.from_pretrained(str(model_dir)),
             device=device
         )
 
