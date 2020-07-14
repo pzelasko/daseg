@@ -58,6 +58,7 @@ def prepare_data(
 @click.option('-p', '--strip-punctuation-and-lowercase', is_flag=True)
 @click.option('-s', '--tagset', default='basic', type=click.Choice(['basic', 'general', 'full']))
 @click.option('-d', '--dont-propagate-context', is_flag=True)
+@click.option('-v', '--verbose', is_flag=True)
 def evaluate(
         model_path: str,
         dataset_path: str,
@@ -67,7 +68,8 @@ def evaluate(
         device: str,
         strip_punctuation_and_lowercase: bool,
         tagset: str,
-        dont_propagate_context: bool
+        dont_propagate_context: bool,
+        verbose: bool
 ):
     dataset = DialogActCorpus.from_path(
         dataset_path,
@@ -80,7 +82,8 @@ def evaluate(
         dataset,
         batch_size=batch_size,
         window_len=window_len,
-        propagate_context=not dont_propagate_context
+        propagate_context=not dont_propagate_context,
+        verbose=verbose
     )
     for res_grp in ('sklearn_metrics', 'seqeval_metrics', 'zhao_kawahara_metrics'):
         print(f'{res_grp.upper()}:')

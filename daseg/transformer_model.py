@@ -6,11 +6,13 @@ from typing import Any, Dict, Optional, List, Tuple, Union
 
 import numpy as np
 import torch
+from cytoolz.itertoolz import identity
 from more_itertools import flatten
 from torch import nn
 from torch.nn import DataParallel
 from torch.nn.modules.loss import CrossEntropyLoss
 from torch.utils.data.dataloader import DataLoader
+from tqdm.auto import tqdm
 from transformers import (
     AutoTokenizer,
     AutoModelForTokenClassification,
@@ -70,8 +72,11 @@ class TransformerModel:
             window_overlap: Optional[int] = None,
             propagate_context: bool = True,
             crf_decoding: bool = False,
-            compute_metrics: bool = True
+            compute_metrics: bool = True,
+            verbose: bool = False
     ) -> Dict[str, Any]:
+        maybe_tqdm = partial(tqdm, desc='Iterating batches') if verbose else identity
+
         if self.config.model_type == 'xlnet' and propagate_context:
             self.model.transformer.mem_len = window_len
             self.model.config.mem_len = window_len
@@ -92,7 +97,7 @@ class TransformerModel:
         else:
             dataloader = dataset
 
-        eval_ce_losses, eval_crf_losses, logits, out_label_ids = zip(*list(
+        eval_ce_losses, eval_crf_losses, logits, out_label_ids = zip(*list(maybe_tqdm(
             map(
                 partial(
                     predict_batch_in_windows,
@@ -101,11 +106,12 @@ class TransformerModel:
                     window_len=window_len,
                     window_overlap=window_overlap,
                     propagate_context=propagate_context,
-                    device=self.device
+                    device=self.device,
+                    verbose=verbose
                 ),
                 dataloader
             ),
-        ))
+        )))
 
         out_label_ids = np.concatenate(out_label_ids, axis=0)
         logits = np.concatenate(logits, axis=0)
@@ -161,7 +167,9 @@ def predict_batch_in_windows(
         window_overlap: Optional[int] = None,
         propagate_context: bool = True,
         device: str = 'cpu',
+        verbose: bool = False
 ):
+    maybe_tqdm = partial(tqdm, desc='Iterating windows') if verbose else identity
     if window_overlap is not None:
         raise ValueError("Overlapping windows processing not implemented.")
     else:
@@ -188,7 +196,7 @@ def predict_batch_in_windows(
 
     mems = None
     with torch.no_grad():
-        for window in windows:
+        for window in maybe_tqdm(windows):
             # Construct the input according to specific Transformer model
             inputs = {"input_ids": window[0], "attention_mask": window[1], "labels": window[3]}
             if config.model_type != "distilbert":
