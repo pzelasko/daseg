@@ -116,6 +116,8 @@ class DialogActCorpus:
         for meeting in transcript_list:
             # Get the id for this meeting
             meeting_name = str(meeting.name.split('.')[0])
+            if meeting_name not in meetings_to_read:
+                continue
             # Get the transcript and database file
             transcript = load_text_data(archive_dir / 'transcripts' / f'{meeting_name}.trans', verbose=False)
             database = load_text_data(archive_dir / 'database' / f'{meeting_name}.dadb', verbose=False)

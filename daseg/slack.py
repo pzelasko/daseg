@@ -1,3 +1,4 @@
+import logging
 import os
 
 import requests
@@ -7,7 +8,10 @@ def slack_notify(msg: str):
     token = os.environ.get('SLACK_API_TOKEN')
     if token is None:
         return
-    requests.post(token, json={'text': msg})
+    try:
+        requests.post(token, json={'text': msg})
+    except:
+        logging.warning('Unable to send notification to Slack!')
 
 
 def print_and_slack(msg: str, *args, **kwargs):
@@ -26,7 +30,7 @@ class SlackNotifier:
 
     def write_and_print(self, msg: str, *args, **kwargs):
         print(msg, *args, **kwargs)
-        self.msgs.append(msg)
+        self.write(msg)
         return self
 
     def push(self):
