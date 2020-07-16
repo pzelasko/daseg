@@ -1,13 +1,12 @@
-from functools import lru_cache
-
 import pytest
-from transformers import AutoConfig, AutoTokenizer, AutoModelForTokenClassification
+from transformers import RobertaForTokenClassification, \
+    RobertaConfig, RobertaTokenizer
 
 from daseg import DialogActCorpus, Call, FunctionalSegment, TransformerModel
 from daseg.data import NEW_TURN
 
 
-@lru_cache(1)
+@pytest.fixture
 def dummy_dataset():
     return DialogActCorpus(dialogues={
         'call0': Call([
@@ -20,45 +19,36 @@ def dummy_dataset():
     })
 
 
-@lru_cache(1)
-def dummy_model(model_type='xlnet-base-cased'):
-    dataset = dummy_dataset()
-    labels = dataset.dialog_act_labels
-    config = AutoConfig.from_pretrained(
-        model_type,
-        num_labels=len(labels),
-        id2label={str(i): label for i, label in enumerate(labels)},
-        label2id={label: i for i, label in enumerate(labels)},
-    )
-    tokenizer = AutoTokenizer.from_pretrained(model_type)
+@pytest.fixture
+def dummy_model(dummy_dataset):
+    labels = dummy_dataset.dialog_act_labels
+    config = RobertaConfig(num_labels=len(labels))
+    config.id2label = {str(i): label for i, label in enumerate(labels)}
+    config.label2id = {label: i for i, label in enumerate(labels)}
+    tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
     tokenizer.add_special_tokens({'additional_special_tokens': [NEW_TURN]})
-    model = AutoModelForTokenClassification.from_pretrained(
-        model_type,
-        config=config,
-    )
+    model = RobertaForTokenClassification(config)
     model.resize_token_embeddings(len(tokenizer))
     return TransformerModel(
         model=model,
-        tokenizer=tokenizer
+        tokenizer=tokenizer,
+        device='cpu'
     )
 
 
 @pytest.mark.parametrize(
-    ['batch_size', 'window_len', 'crf_decoding'],
+    ['batch_size', 'window_len'],
     [
-        (1, None, False),
-        (2, None, False),
-        (1, None, True),
-        (1, 8, False),
-        (1, 8, True)
+        (1, None),
+        (2, None),
+        (1, 8),
     ]
 )
-def test_dummy_model_runs(batch_size, window_len, crf_decoding):
-    dataset = dummy_dataset()
-    model = dummy_model()
-    model.predict(
-        dataset,
+def test_dummy_model_runs(dummy_dataset, dummy_model, batch_size, window_len):
+    results = dummy_model.predict(
+        dummy_dataset,
         batch_size=batch_size,
         window_len=window_len,
-        crf_decoding=crf_decoding
     )
+    assert 'dataset' in results
+    assert results['dataset'].calls[0].words() == dummy_dataset.calls[0].words()

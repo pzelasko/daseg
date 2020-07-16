@@ -1,8 +1,7 @@
 import json
 from functools import partial
 from pathlib import Path
-from tempfile import NamedTemporaryFile
-from typing import Any, Dict, Optional, List, Tuple, Union
+from typing import Any, Dict, Optional, List, Tuple, Union, Iterable
 
 import numpy as np
 import torch
@@ -21,14 +20,15 @@ from transformers import (
     ReformerTokenizer
 )
 
-from daseg.data import DialogActCorpus
+from daseg import FunctionalSegment
+from daseg.data import DialogActCorpus, Call, NEW_TURN, is_begin_act, is_continued_act, \
+    decode_act
 from daseg.dataloader import to_transformers_ner_format
 from daseg.longformer_model import LongformerForTokenClassification
 from daseg.metrics import compute_sklearn_metrics, compute_seqeval_metrics, compute_zhao_kawahara_metrics
 from daseg.reformer_model import ReformerForTokenClassification
 
 __all__ = ['TransformerModel']
-
 
 
 class TransformerModel:
@@ -223,15 +223,75 @@ def predict_batch_in_windows(
     return ce_loss, crf_loss, np.concatenate(logits, axis=1), batch[3].detach().cpu().numpy()
 
 
-def predictions_to_dataset(original_dataset: DialogActCorpus, predictions: List[List[str]]) -> DialogActCorpus:
-    # Does some possibly unnecessary back-and-forth, but gets the job done!
-    with NamedTemporaryFile('w+') as f:
-        for call, pred_tags in zip(original_dataset.calls, predictions):
-            words = call.words(add_turn_token=True)
-            assert len(words) == len(pred_tags), \
-                f'Mismatched words ({len(words)}) and predicted tags ({len(pred_tags)}) counts'
-            for w, t in zip(words, pred_tags):
-                print(f'{w} {t}', file=f)
-            print(file=f)
-        f.flush()
-        return DialogActCorpus.from_transformers_predictions(f.name)
+def predictions_to_dataset(
+        original_dataset: DialogActCorpus,
+        predictions: List[List[str]],
+        ignore_continuation_token_prediction: bool = False
+) -> DialogActCorpus:
+    dialogues = {}
+    for (call_id, call), pred_tags in zip(original_dataset.dialogues.items(), predictions):
+        words, _, speakers = call.words_with_metadata(add_turn_token=True)
+        assert len(words) == len(pred_tags), \
+            f'Mismatched words ({len(words)}) and predicted tags ({len(pred_tags)}) counts'
+
+        def turns(pairs: Iterable[Tuple[str, str, str]]):
+            turn = []
+            for word, tag, speaker in pairs:
+                if NEW_TURN in word or not word:
+                    yield turn
+                    turn = []
+                    continue
+                turn.append((word, tag, speaker))
+            if turn:
+                yield turn
+
+        def segments(turns: Iterable[List[Tuple[str, str, str]]]):
+            for turn in turns:
+                prev_tag = None
+                segment = []
+                for word, tag, speaker in turn:
+                    if prev_tag is None or tag == prev_tag or (
+                            is_begin_act(prev_tag) and is_continued_act(tag) and decode_act(prev_tag) == decode_act(
+                        tag)):
+                        segment.append((word, tag, speaker))
+                    else:
+                        yield FunctionalSegment(
+                            text=' '.join(w for w, _, _ in segment),
+                            dialog_act=decode_act(segment[0][1]),
+                            speaker=segment[0][2]
+                        )
+                        segment = [(word, tag, speaker)]
+                    prev_tag = tag
+                if segment:
+                    yield FunctionalSegment(
+                        text=' '.join(w for w, _, _ in segment),
+                        dialog_act=decode_act(segment[0][1]),
+                        speaker=segment[0][2]
+                    )
+
+        def segments_common_continuation_token(turns):
+            for turn in turns:
+                prev_tag = None
+                segment = []
+                for word, tag, speaker in turn:
+                    if prev_tag is None or is_continued_act(tag):
+                        segment.append((word, tag, speaker))
+                    else:
+                        yield FunctionalSegment(
+                            text=' '.join(w for w, _, _ in segment),
+                            dialog_act=decode_act(segment[0][1]),
+                            speaker=segment[0][2]
+                        )
+                        segment = [(word, tag, speaker)]
+                    prev_tag = tag
+                if segment:
+                    yield FunctionalSegment(
+                        text=' '.join(w for w, _, _ in segment),
+                        dialog_act=decode_act(segment[0][1]),
+                        speaker=segment[0][2]
+                    )
+
+        segmentation = segments_common_continuation_token if ignore_continuation_token_prediction else segments
+        dialogues[call_id] = Call(segmentation(turns(zip(words, pred_tags, speakers))))
+
+    return DialogActCorpus(dialogues=dialogues)

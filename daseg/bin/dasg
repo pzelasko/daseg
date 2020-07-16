@@ -82,7 +82,7 @@ def evaluate(
     )
     model = TransformerModel.from_path(Path(model_path), device=device)
     results = model.predict(
-        dataset,
+        dataset=dataset,
         batch_size=batch_size,
         window_len=window_len,
         propagate_context=not dont_propagate_context,

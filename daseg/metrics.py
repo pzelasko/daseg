@@ -117,7 +117,7 @@ def compute_labeled_span_errors(true_dataset: DialogActCorpus, pred_dataset: Dia
             score = true_span[1] - true_span[0] if token_weighted else 1
             if true_da != GAP_CHAR:
                 stats['tot'][true_da] += score
-            if true_da == pred_da:
+            if true_span == pred_span:
                 stats['ok'][true_da] += score
             elif true_da == GAP_CHAR:
                 stats['ins'][pred_da] += score

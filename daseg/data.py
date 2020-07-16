@@ -278,12 +278,16 @@ class Call(List['FunctionalSegment']):
         words, tags = self.words_with_tags(add_turn_token=add_turn_token)
         return list(words)
 
-    def words_with_tags(
+    def speakers(self, add_turn_token: bool = True) -> List[str]:
+        words, tags, speakers = self.words_with_metadata(add_turn_token=add_turn_token)
+        return speakers
+
+    def words_with_metadata(
             self,
             add_turn_token: bool = True,
             indicate_begin_continue: bool = True,
             continuations_allowed: bool = True
-    ) -> Tuple[List[str], List[str]]:
+    ) -> Tuple[List[str], List[str], List[str]]:
 
         def resolve_dialog_act(word: str, segment_pos: int, segment: FunctionalSegment):
             dialog_act = segment.dialog_act
@@ -296,15 +300,32 @@ class Call(List['FunctionalSegment']):
                 prefix = CONTINUE_TAG
             return f'{prefix}{dialog_act}'
 
-        pairs = [
-            (w, resolve_dialog_act(word=w, segment_pos=segment_pos, segment=segment))
-            for segment in self
-            for segment_pos, w in enumerate(segment.text.split() + ([NEW_TURN] if add_turn_token else []))
-        ]
-        if add_turn_token:
-            pairs = pairs[:-1]
-        words, tags = zip(*pairs)
-        return list(words), list(tags)
+        pairs = []
+        for segment, next_segment in sliding_window(2, chain(self, [None])):
+            words = segment.text.split()
+            if add_turn_token and next_segment is not None and segment.speaker != next_segment.speaker:
+                words.append(NEW_TURN)
+            for segment_pos, word in enumerate(words):
+                pairs.append((
+                    word,
+                    resolve_dialog_act(word=word, segment_pos=segment_pos, segment=segment),
+                    segment.speaker)
+                )
+        words, tags, speakers = zip(*pairs)
+        return list(words), list(tags), list(speakers)
+
+    def words_with_tags(
+            self,
+            add_turn_token: bool = True,
+            indicate_begin_continue: bool = True,
+            continuations_allowed: bool = True
+    ) -> Tuple[List[str], List[str]]:
+        words, tags, speakers = self.words_with_metadata(
+            add_turn_token=add_turn_token,
+            indicate_begin_continue=indicate_begin_continue,
+            continuations_allowed=continuations_allowed
+        )
+        return words, tags
 
     def render(self, max_turns=None, jupyter=True, tagset=SWDA_DIALOG_ACTS.values(), random_seed=0):
         """Render the call as annotated with dialog acts in a Jupyter notebook"""
@@ -387,6 +408,10 @@ class FunctionalSegment(NamedTuple):
     dialog_act: Optional[str]
     speaker: str
     is_continuation: bool = False
+
+    def words_with_metadata(self) -> Iterable[Tuple[str, Optional[str], str]]:
+        for word in self.text.split():
+            yield word, self.dialog_act, self.speaker
 
 
 def parse_swda_transcript(
