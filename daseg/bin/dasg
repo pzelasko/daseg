@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import pickle
 import sys
 from pathlib import Path
 from typing import Optional
@@ -57,6 +58,7 @@ def prepare_data(
 @click.option('--batch_size', default=4, type=int)
 @click.option('--window_len', default=None, type=int)
 @click.option('--device', default='cpu', type=str)
+@click.option('-o', '--save-output', default=None, type=click.Path())
 @click.option('-p', '--strip-punctuation-and-lowercase', is_flag=True)
 @click.option('-s', '--tagset', default='basic',
               type=click.Choice(['basic', 'general', 'full', 'custom', 'segmentation']))
@@ -69,6 +71,7 @@ def evaluate(
         batch_size: int,
         window_len: int,
         device: str,
+        save_output: Optional[str],
         strip_punctuation_and_lowercase: bool,
         tagset: str,
         dont_propagate_context: bool,
@@ -92,7 +95,10 @@ def evaluate(
         for res_grp in ('sklearn_metrics', 'seqeval_metrics', 'zhao_kawahara_metrics'):
             slack.write_and_print(f'{res_grp.upper()}:')
             for key, val in results[res_grp].items():
-                slack.write_and_print(f'- {key} => {val:.2%}')
+                slack.write_and_print(f'{key}\t{val:.2%}')
+    if save_output is not None:
+        with open(save_output, 'wb') as f:
+            pickle.dump(results, f)
 
 
 if __name__ == '__main__':
