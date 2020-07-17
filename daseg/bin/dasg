@@ -60,6 +60,7 @@ def prepare_data(
 @click.option('--device', default='cpu', type=str)
 @click.option('-o', '--save-output', default=None, type=click.Path())
 @click.option('-p', '--strip-punctuation-and-lowercase', is_flag=True)
+@click.option('-r', '--begin-determines-act', is_flag=True)
 @click.option('-s', '--tagset', default='basic',
               type=click.Choice(['basic', 'general', 'full', 'custom', 'segmentation']))
 @click.option('-d', '--dont-propagate-context', is_flag=True)
@@ -73,6 +74,7 @@ def evaluate(
         device: str,
         save_output: Optional[str],
         strip_punctuation_and_lowercase: bool,
+        begin_determines_act: bool,
         tagset: str,
         dont_propagate_context: bool,
         verbose: bool
@@ -89,6 +91,7 @@ def evaluate(
         batch_size=batch_size,
         window_len=window_len,
         propagate_context=not dont_propagate_context,
+        begin_determines_act=begin_determines_act,
         verbose=verbose
     )
     with SlackNotifier(' '.join(sys.argv)) as slack:

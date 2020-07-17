@@ -73,6 +73,7 @@ class TransformerModel:
             propagate_context: bool = True,
             crf_decoding: bool = False,
             compute_metrics: bool = True,
+            begin_determines_act: bool = False,
             verbose: bool = False
     ) -> Dict[str, Any]:
         maybe_tqdm = partial(tqdm, desc='Iterating batches') if verbose else identity
@@ -150,7 +151,7 @@ class TransformerModel:
                 "seqeval_metrics": compute_seqeval_metrics(out_label_list, preds_list)
             })
         if isinstance(dataset, DialogActCorpus):
-            results["dataset"] = predictions_to_dataset(dataset, preds_list)
+            results["dataset"] = predictions_to_dataset(dataset, preds_list, begin_determines_act=begin_determines_act)
             if compute_metrics:
                 results["zhao_kawahara_metrics"] = compute_zhao_kawahara_metrics(
                     true_dataset=dataset, pred_dataset=results['dataset']
@@ -226,7 +227,7 @@ def predict_batch_in_windows(
 def predictions_to_dataset(
         original_dataset: DialogActCorpus,
         predictions: List[List[str]],
-        ignore_continuation_token_prediction: bool = False
+        begin_determines_act: bool = False
 ) -> DialogActCorpus:
     dialogues = {}
     for (call_id, call), pred_tags in zip(original_dataset.dialogues.items(), predictions):
@@ -291,7 +292,7 @@ def predictions_to_dataset(
                         speaker=segment[0][2]
                     )
 
-        segmentation = segments_common_continuation_token if ignore_continuation_token_prediction else segments
+        segmentation = segments_common_continuation_token if begin_determines_act else segments
         dialogues[call_id] = Call(segmentation(turns(zip(words, pred_tags, speakers))))
 
     return DialogActCorpus(dialogues=dialogues)
