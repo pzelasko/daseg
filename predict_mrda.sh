@@ -26,7 +26,7 @@ for LABEL in segmentation basic general full; do
         /export/c12/pzelasko/daseg/daseg/mrda_${LABEL}_longformer_${CASE}/longformer \
         &> ${RESULTS_NAME}.txt &
     done
+    wait
   done
 done
 
-wait
