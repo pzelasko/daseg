@@ -36,11 +36,11 @@ export MAX_LENGTH=4096
 dasg prepare-data \
   --continuations-allowed \
   --strip-punctuation-and-lowercase \
-  --swda-path /export/c12/pzelasko/daseg/daseg/deps/swda/swda \
+  --dataset-path /export/c12/pzelasko/daseg/daseg/deps/swda/swda \
   --tagset segmentation \
   ./
 
-#wget "https://raw.githubusercontent.com/stefan-it/fine-tuned-berts-seq/master/scripts/preprocess.py"
+wget "https://raw.githubusercontent.com/stefan-it/fine-tuned-berts-seq/master/scripts/preprocess.py"
 python3 preprocess.py train.txt.tmp $BERT_MODEL_TOK $MAX_LENGTH > train.txt
 python3 preprocess.py dev.txt.tmp $BERT_MODEL_TOK $MAX_LENGTH > dev.txt
 python3 preprocess.py test.txt.tmp $BERT_MODEL_TOK $MAX_LENGTH > test.txt

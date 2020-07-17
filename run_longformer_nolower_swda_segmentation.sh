@@ -34,7 +34,7 @@ export MAX_LENGTH=4096
 
 dasg prepare-data \
   --continuations-allowed \
-  --swda-path /export/c12/pzelasko/daseg/daseg/deps/swda/swda \
+  --dataset-path /export/c12/pzelasko/daseg/daseg/deps/swda/swda \
   --tagset segmentation \
   ./
 

@@ -33,7 +33,7 @@ export MAX_LENGTH=512
 
 dasg prepare-data \
   --continuations-allowed \
-  --swda-path /export/c12/pzelasko/daseg/daseg/deps/swda/swda \
+  --dataset-path /export/c12/pzelasko/daseg/daseg/deps/swda/swda \
   --window-size 40 \
   --window-overlap 4 \
   --tagset segmentation \
