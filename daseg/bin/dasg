@@ -25,6 +25,7 @@ def cli():
 @click.option('-t', '--window-test', is_flag=True)
 @click.option('-s', '--tagset', default='basic',
               type=click.Choice(['basic', 'general', 'full', 'custom', 'segmentation']))
+@click.option('-j', '--no-joint-coding', is_flag=True)
 def prepare_data(
         output_dir: str,
         dataset_path: str,
@@ -33,7 +34,8 @@ def prepare_data(
         strip_punctuation_and_lowercase: bool,
         continuations_allowed: bool,
         window_test: bool,
-        tagset: str
+        tagset: str,
+        no_joint_coding: bool
 ):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -47,7 +49,8 @@ def prepare_data(
             output_dir / f'{split_name}.txt.tmp',
             acts_count_per_sample=window_size if split_name != 'test' or window_test else None,
             acts_count_overlap=window_overlap if split_name != 'test' or window_test else None,
-            continuations_allowed=continuations_allowed
+            continuations_allowed=continuations_allowed,
+            use_joint_coding=not no_joint_coding
         )
 
 
@@ -65,6 +68,7 @@ def prepare_data(
               type=click.Choice(['basic', 'general', 'full', 'custom', 'segmentation']))
 @click.option('-d', '--dont-propagate-context', is_flag=True)
 @click.option('-v', '--verbose', is_flag=True)
+@click.option('-j', '--no-joint-coding', is_flag=True)
 def evaluate(
         model_path: str,
         dataset_path: str,
@@ -77,7 +81,8 @@ def evaluate(
         begin_determines_act: bool,
         tagset: str,
         dont_propagate_context: bool,
-        verbose: bool
+        verbose: bool,
+        no_joint_coding: bool
 ):
     dataset = DialogActCorpus.from_path(
         dataset_path,
@@ -92,7 +97,8 @@ def evaluate(
         window_len=window_len,
         propagate_context=not dont_propagate_context,
         begin_determines_act=begin_determines_act,
-        verbose=verbose
+        verbose=verbose,
+        use_joint_coding=not no_joint_coding
     )
     with SlackNotifier(' '.join(sys.argv)) as slack:
         for res_grp in ('sklearn_metrics', 'seqeval_metrics', 'zhao_kawahara_metrics'):

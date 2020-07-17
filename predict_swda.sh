@@ -27,7 +27,7 @@ for MODEL in longformer xlnet; do
           ${CASE_OPT} \
           ${RECONSTRUCTION_OPT} \
           /export/c12/pzelasko/daseg/daseg/swda_${LABEL}_${MODEL}_${CASE}/${MODEL} \
-          &> ${RESULTS_NAME}.txt &
+          &>${RESULTS_NAME}.txt &
       done
     done
   done

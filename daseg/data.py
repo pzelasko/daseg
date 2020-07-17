@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import NamedTuple, Tuple, List, FrozenSet, Iterable, Dict, Optional, Callable, Mapping
 
 from cytoolz.itertoolz import sliding_window
+from more_itertools import flatten
 from spacy import displacy
 from spacy.tokens.doc import Doc
 from spacy.tokens.span import Span
@@ -252,6 +253,7 @@ class DialogActCorpus:
             acts_count_per_sample: Optional[int] = None,
             acts_count_overlap: Optional[int] = None,
             continuations_allowed: bool = False,
+            use_joint_coding: bool = False
     ):
         """
         Write this dataset to a text file used by Transformers NER recipe.
@@ -267,7 +269,11 @@ class DialogActCorpus:
                     acts_count_overlap=acts_count_overlap,
                 )
                 for window in tqdm(call_windows, desc='Windows (if requested)', leave=False):
-                    lines = to_transformers_ner_dataset(window, continuations_allowed=continuations_allowed)
+                    lines = to_transformers_ner_dataset(
+                        window,
+                        continuations_allowed=continuations_allowed,
+                        use_joint_coding=use_joint_coding
+                    )
                     for line in lines:
                         print(line, file=f)
                     print(file=f)
@@ -276,7 +282,7 @@ class DialogActCorpus:
 class Call(List['FunctionalSegment']):
     def words(self, add_turn_token: bool = True) -> List[str]:
         words, tags = self.words_with_tags(add_turn_token=add_turn_token)
-        return list(words)
+        return words
 
     def speakers(self, add_turn_token: bool = True) -> List[str]:
         words, tags, speakers = self.words_with_metadata(add_turn_token=add_turn_token)
@@ -285,49 +291,33 @@ class Call(List['FunctionalSegment']):
     def words_with_metadata(
             self,
             add_turn_token: bool = True,
-            indicate_begin_continue: bool = True,
-            continuations_allowed: bool = True
+            continuations_allowed: bool = True,
+            use_joint_coding: bool = False
     ) -> Tuple[List[str], List[str], List[str]]:
-
-        def resolve_dialog_act(word: str, segment_pos: int, segment: FunctionalSegment):
-            dialog_act = segment.dialog_act
-            if dialog_act is None or word == NEW_TURN:
-                return BLANK
-            if not indicate_begin_continue:
-                return dialog_act
-            prefix = BEGIN_TAG
-            if segment_pos != 0 or (segment.is_continuation and continuations_allowed):
-                prefix = CONTINUE_TAG
-            return f'{prefix}{dialog_act}'
-
-        pairs = []
-        for segment, next_segment in sliding_window(2, chain(self, [None])):
-            words = segment.text.split()
-            if add_turn_token and next_segment is not None and segment.speaker != next_segment.speaker:
-                words.append(NEW_TURN)
-            for segment_pos, word in enumerate(words):
-                pairs.append((
-                    word,
-                    resolve_dialog_act(word=word, segment_pos=segment_pos, segment=segment),
-                    segment.speaker)
-                )
-        words, tags, speakers = zip(*pairs)
-        return list(words), list(tags), list(speakers)
+        encoded_segments = self.encode(
+            use_joint_coding=use_joint_coding,
+            continuations_allowed=continuations_allowed,
+            add_turn_token=add_turn_token,
+        )
+        words = list(flatten(segment.words for segment in encoded_segments))
+        tags = list(flatten(segment.encoded_acts for segment in encoded_segments))
+        speakers = list(flatten(segment.speakers for segment in encoded_segments))
+        return words, tags, speakers
 
     def words_with_tags(
             self,
             add_turn_token: bool = True,
-            indicate_begin_continue: bool = True,
+            use_joint_coding: bool = False,
             continuations_allowed: bool = True
     ) -> Tuple[List[str], List[str]]:
         words, tags, speakers = self.words_with_metadata(
+            use_joint_coding=use_joint_coding,
+            continuations_allowed=continuations_allowed,
             add_turn_token=add_turn_token,
-            indicate_begin_continue=indicate_begin_continue,
-            continuations_allowed=continuations_allowed
         )
         return words, tags
 
-    def render(self, max_turns=None, jupyter=True, tagset=SWDA_DIALOG_ACTS.values(), random_seed=0):
+    def render(self, max_turns=None, jupyter=True, tagset=SWDA_DIALOG_ACTS.values()):
         """Render the call as annotated with dialog acts in a Jupyter notebook"""
 
         # Render DAs options
@@ -377,6 +367,54 @@ class Call(List['FunctionalSegment']):
                 yield idx, idx + n_toks
             idx += n_toks
 
+    def encode(
+            self,
+            use_joint_coding: bool = False,
+            continuations_allowed: bool = True,
+            add_turn_token: bool = True,
+    ) -> List['EncodedSegment']:
+        speakers = [segment.speaker for segment in self]
+        unique_speakers = set(speakers)
+
+        encoded_with_idx = []
+        for speaker in unique_speakers:
+            speaker_segments = ((idx, segment) for idx, segment in enumerate(self) if segment.speaker == speaker)
+            segment_windows = sliding_window(3, chain([(None, None)], speaker_segments, [(None, None)]))
+            for (_, prv), (idx, cur), (_, nxt) in segment_windows:
+                if use_joint_coding:
+                    enc = [(word, CONTINUE_TAG) for word in cur.text.split()]
+                    if not (continuations_allowed and nxt is not None and nxt.is_continuation):
+                        enc[-1] = (enc[-1][0], cur.dialog_act)
+                else:
+                    enc = [(word, f'{CONTINUE_TAG}{cur.dialog_act}') for word in cur.text.split()]
+                    if not (continuations_allowed and cur.is_continuation):
+                        enc[0] = (enc[0][0], f'{BEGIN_TAG}{cur.dialog_act}')
+                words, acts = zip(*enc)
+                encoded_segment = EncodedSegment(
+                    words=list(words),
+                    encoded_acts=list(acts),
+                    speakers=[cur.speaker] * len(words)
+                )
+                encoded_with_idx.append((idx, encoded_segment))
+
+        encoded_with_idx = sorted(encoded_with_idx, key=lambda tpl: tpl[0])
+        encoded_call = [enc for idx, enc in encoded_with_idx]
+
+        if add_turn_token:
+            encoded_call_with_turns = []
+            segment_windows = sliding_window(2, chain([None], encoded_call))
+            for prev_segment, encoded_segment in segment_windows:
+                if prev_segment is not None and prev_segment.speakers[0] != encoded_segment.speakers[0]:
+                    encoded_call_with_turns.append(EncodedSegment(
+                        words=[NEW_TURN],
+                        encoded_acts=[BLANK],
+                        speakers=[encoded_segment.speakers[0]]
+                    ))
+                encoded_call_with_turns.append(encoded_segment)
+            return encoded_call_with_turns
+
+        return encoded_call
+
 
 def prepare_call_windows(
         call: Call,
@@ -412,6 +450,15 @@ class FunctionalSegment(NamedTuple):
     def words_with_metadata(self) -> Iterable[Tuple[str, Optional[str], str]]:
         for word in self.text.split():
             yield word, self.dialog_act, self.speaker
+
+
+class EncodedSegment(NamedTuple):
+    words: List[str]
+    encoded_acts: List[str]
+    speakers: List[str]
+
+    def iter_tuples(self):
+        return zip(self.words, self.encoded_acts, self.speakers)
 
 
 def parse_swda_transcript(
@@ -483,33 +530,23 @@ Transformers IO specific methods.
 
 
 def to_transformers_ner_dataset(
-        call: List,
+        call: Call,
         continuations_allowed: bool = True,
-        insert_turn: bool = True
+        add_turn_token: bool = True,
+        use_joint_coding: bool = True
 ) -> List[str]:
     """
     Convert a list of functional segments into text representations,
     used by the Transformers library to train NER models.
     """
     lines = []
-    prev_spk = None
-    prev_tag = {'A': None, 'B': None}
-    for utt, tag, who, is_continuation in call:
-        tag = '-'.join(tag.split()) if tag is not None else tag
-        tokens = utt.split()
-        if tag is None:
-            labels = [BLANK] * len(tokens)
-        elif continuations_allowed and is_continuation:
-            labels = [f'{CONTINUE_TAG}{prev_tag[who]}'] * len(tokens)
-        else:
-            labels = [f'{BEGIN_TAG}{tag}'] + [f'{CONTINUE_TAG}{tag}'] * (len(tokens) - 1)
-        if insert_turn and prev_spk is not None and prev_spk != who:
-            tokens = [NEW_TURN] + tokens
-            labels = [BLANK] + labels
-        for token, label in zip(tokens, labels):
-            lines.append(f'{token} {label}')
-        prev_spk = who
-        prev_tag[who] = tag
+    for segment in call.encode(
+            use_joint_coding=use_joint_coding,
+            continuations_allowed=continuations_allowed,
+            add_turn_token=add_turn_token
+    ):
+        for word, act, speaker in segment.iter_tuples():
+            lines.append(f'{word} {act}')
     return lines
 
 

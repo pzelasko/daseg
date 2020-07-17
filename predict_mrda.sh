@@ -24,7 +24,7 @@ for LABEL in segmentation basic general full; do
         ${CASE_OPT} \
         ${RECONSTRUCTION_OPT} \
         /export/c12/pzelasko/daseg/daseg/mrda_${LABEL}_longformer_${CASE}/longformer \
-        &> ${RESULTS_NAME}.txt &
+        &>${RESULTS_NAME}.txt &
     done
   done
 done
