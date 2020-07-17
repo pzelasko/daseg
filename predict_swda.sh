@@ -13,9 +13,11 @@ for MODEL in longformer xlnet; do
         RECONSTRUCTION_OPT=
         if [[ $RECONSTRUCTION == begin_based ]]; then RECONSTRUCTION_OPT='--begin-determines-act'; fi
         WINDOW=4096
-        if [[ $MODEL -eq xlnet ]]; then WINDOW=512; fi
+        if [[ $MODEL == xlnet ]]; then WINDOW=512; fi
 
         RESULTS_NAME=swda_results/${LABEL}_${MODEL}_${CASE}_${RECONSTRUCTION}
+        CKPT=
+        if [[ $MODEL == longformer ]]; then CKPT="/checkpoint-6000"; fi
 
         dasg evaluate \
           --dataset-path deps/swda/swda \
@@ -26,9 +28,10 @@ for MODEL in longformer xlnet; do
           -o ${RESULTS_NAME}.pkl \
           ${CASE_OPT} \
           ${RECONSTRUCTION_OPT} \
-          /export/c12/pzelasko/daseg/daseg/swda_${LABEL}_${MODEL}_${CASE}/${MODEL} \
-          &>${RESULTS_NAME}.txt &
+          /export/c12/pzelasko/daseg/daseg/swda_${LABEL}_${MODEL}_${CASE}/${MODEL}${CKPT} \
+          &> ${RESULTS_NAME}.txt &
       done
     done
+    wait
   done
 done
