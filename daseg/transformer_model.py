@@ -22,7 +22,7 @@ from transformers import (
 
 from daseg import FunctionalSegment
 from daseg.data import DialogActCorpus, Call, NEW_TURN, is_begin_act, is_continued_act, \
-    decode_act
+    decode_act, BLANK
 from daseg.dataloader import to_transformers_ner_format
 from daseg.longformer_model import LongformerForTokenClassification
 from daseg.metrics import compute_sklearn_metrics, compute_seqeval_metrics, compute_zhao_kawahara_metrics
@@ -74,7 +74,8 @@ class TransformerModel:
             crf_decoding: bool = False,
             compute_metrics: bool = True,
             begin_determines_act: bool = False,
-            verbose: bool = False
+            verbose: bool = False,
+            use_joint_coding: bool = False
     ) -> Dict[str, Any]:
         maybe_tqdm = partial(tqdm, desc='Iterating batches') if verbose else identity
 
@@ -151,7 +152,12 @@ class TransformerModel:
                 "seqeval_metrics": compute_seqeval_metrics(out_label_list, preds_list)
             })
         if isinstance(dataset, DialogActCorpus):
-            results["dataset"] = predictions_to_dataset(dataset, preds_list, begin_determines_act=begin_determines_act)
+            results["dataset"] = predictions_to_dataset(
+                dataset,
+                preds_list,
+                begin_determines_act=begin_determines_act,
+                use_joint_coding=use_joint_coding
+            )
             if compute_metrics:
                 results["zhao_kawahara_metrics"] = compute_zhao_kawahara_metrics(
                     true_dataset=dataset, pred_dataset=results['dataset']
@@ -227,7 +233,8 @@ def predict_batch_in_windows(
 def predictions_to_dataset(
         original_dataset: DialogActCorpus,
         predictions: List[List[str]],
-        begin_determines_act: bool = False
+        begin_determines_act: bool = False,
+        use_joint_coding: bool = False
 ) -> DialogActCorpus:
     dialogues = {}
     for (call_id, call), pred_tags in zip(original_dataset.dialogues.items(), predictions):
@@ -292,7 +299,32 @@ def predictions_to_dataset(
                         speaker=segment[0][2]
                     )
 
-        segmentation = segments_common_continuation_token if begin_determines_act else segments
+        def segments_joint_coding(turns):
+            # TODO: doesn't work for handling continuations for now
+            for turn in turns:
+                segment = []
+                for word, tag, speaker in turn:
+                    segment.append((word, tag, speaker))
+                    if not is_continued_act(tag):
+                        yield FunctionalSegment(
+                            text=' '.join(w for w, _, _ in segment),
+                            dialog_act=decode_act(segment[-1][1]),
+                            speaker=segment[-1][2]
+                        )
+                        segment = []
+                if segment:
+                    yield FunctionalSegment(
+                        text=' '.join(w for w, _, _ in segment),
+                        dialog_act=BLANK,
+                        speaker=segment[0][2]
+                    )
+
+        segmentation = segments
+        if begin_determines_act:
+            segmentation = segments_common_continuation_token
+        if use_joint_coding:
+            segmentation = segments_joint_coding
+
         dialogues[call_id] = Call(segmentation(turns(zip(words, pred_tags, speakers))))
 
     return DialogActCorpus(dialogues=dialogues)
