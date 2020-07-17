@@ -1,11 +1,12 @@
 import json
 from functools import partial
+from itertools import chain
 from pathlib import Path
 from typing import Any, Dict, Optional, List, Tuple, Union, Iterable
 
 import numpy as np
 import torch
-from cytoolz.itertoolz import identity
+from cytoolz.itertoolz import identity, sliding_window
 from more_itertools import flatten
 from torch import nn
 from torch.nn import DataParallel
@@ -22,7 +23,7 @@ from transformers import (
 
 from daseg import FunctionalSegment
 from daseg.data import DialogActCorpus, Call, NEW_TURN, is_begin_act, is_continued_act, \
-    decode_act, BLANK
+    decode_act
 from daseg.dataloader import to_transformers_ner_format
 from daseg.longformer_model import LongformerForTokenClassification
 from daseg.metrics import compute_sklearn_metrics, compute_seqeval_metrics, compute_zhao_kawahara_metrics
@@ -300,24 +301,36 @@ def predictions_to_dataset(
                     )
 
         def segments_joint_coding(turns):
-            # TODO: doesn't work for handling continuations for now
-            for turn in turns:
-                segment = []
-                for word, tag, speaker in turn:
-                    segment.append((word, tag, speaker))
-                    if not is_continued_act(tag):
+
+            def inner():
+                for turn in turns:
+                    segment = []
+                    for word, tag, speaker in turn:
+                        segment.append((word, tag, speaker))
+                        if not is_continued_act(tag):
+                            yield FunctionalSegment(
+                                text=' '.join(w for w, _, _ in segment),
+                                dialog_act=decode_act(segment[-1][1]),
+                                speaker=segment[-1][2]
+                            )
+                            segment = []
+                    if segment:
                         yield FunctionalSegment(
                             text=' '.join(w for w, _, _ in segment),
-                            dialog_act=decode_act(segment[-1][1]),
-                            speaker=segment[-1][2]
+                            dialog_act='?',
+                            speaker=segment[0][2]
                         )
-                        segment = []
-                if segment:
-                    yield FunctionalSegment(
-                        text=' '.join(w for w, _, _ in segment),
-                        dialog_act=BLANK,
-                        speaker=segment[0][2]
+
+            segments = []
+            for segment, next_segment in sliding_window(2, chain(inner(), [None])):
+                if segment.dialog_act == '?':
+                    segment = FunctionalSegment(
+                        text=segment.text,
+                        dialog_act=next_segment.dialog_act,
+                        speaker=segment.speaker
                     )
+                segments.append(segment)
+            return segments
 
         segmentation = segments
         if begin_determines_act:

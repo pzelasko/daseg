@@ -112,6 +112,6 @@ def test_parsing_predictions_joint_coding_continuation(continuation_dataset, con
     assert len(predicted_dataset) == 1
     assert predicted_dataset.call_ids == ['call1']
     call = predicted_dataset.calls[0]
-    assert call[0] == FunctionalSegment('hi how are you', dialog_act='Question', speaker='A')
+    assert call[0] == FunctionalSegment('hi how are you', dialog_act='Statement', speaker='A')
     assert call[1] == FunctionalSegment("i'm fine", dialog_act='Statement', speaker='B')
     assert call[2] == FunctionalSegment('long time no see', dialog_act='Statement', speaker='A')
