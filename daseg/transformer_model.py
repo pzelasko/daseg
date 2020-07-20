@@ -23,7 +23,7 @@ from transformers import (
 
 from daseg import FunctionalSegment
 from daseg.data import DialogActCorpus, Call, NEW_TURN, is_begin_act, is_continued_act, \
-    decode_act
+    decode_act, BLANK
 from daseg.dataloader import to_transformers_ner_format
 from daseg.longformer_model import LongformerForTokenClassification
 from daseg.metrics import compute_sklearn_metrics, compute_seqeval_metrics, compute_zhao_kawahara_metrics
@@ -96,6 +96,7 @@ class TransformerModel:
                 batch_size=batch_size,
                 labels=self.config.label2id.keys(),
                 max_seq_length=None,
+                use_joint_coding=use_joint_coding
             )
         else:
             dataloader = dataset
@@ -326,7 +327,7 @@ def predictions_to_dataset(
                 if segment.dialog_act == '?':
                     segment = FunctionalSegment(
                         text=segment.text,
-                        dialog_act=next_segment.dialog_act,
+                        dialog_act=next_segment.dialog_act if next_segment is not None else BLANK,
                         speaker=segment.speaker
                     )
                 segments.append(segment)

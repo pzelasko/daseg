@@ -16,6 +16,7 @@ def to_transformers_ner_format(
         batch_size: int,
         labels: Iterable[str],
         max_seq_length: Optional[int] = None,
+        use_joint_coding: bool = False,
 ) -> DataLoader:
     """
     Convert the DA dataset into a PyTorch DataLoader for inference.
@@ -35,7 +36,7 @@ def to_transformers_ner_format(
         # This does some unnecessary back-and-forth but it's convenient
         # lines = to_transformers_ner_dataset(call)
         # zip(*[l.split() for l in lines])
-        words, tags = call.words_with_tags(add_turn_token=True)
+        words, tags = call.words_with_tags(add_turn_token=True, use_joint_coding=use_joint_coding)
         ner_examples.append(InputExample(guid=idx, words=words, labels=tags))
 
     # determine max seq length
