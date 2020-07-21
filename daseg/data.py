@@ -1,6 +1,7 @@
 """
 Utilities for retrieving, manipulating and storing the dialog act data.
 """
+import pickle
 import re
 from functools import partial
 from itertools import groupby, chain
@@ -12,7 +13,6 @@ from more_itertools import flatten
 from spacy import displacy
 from spacy.tokens.doc import Doc
 from spacy.tokens.span import Span
-from swda import Transcript, CorpusReader
 from tqdm.autonotebook import tqdm
 
 from daseg.resources import SWDA_DIALOG_ACTS, COLORMAP, get_nlp, to_swda_42_labels, MRDA_BASIC_DIALOG_ACTS, \
@@ -52,7 +52,15 @@ class DialogActCorpus:
             strip_punctuation_and_lowercase: bool = False,
             tagset: str = 'basic'
     ):
-        """Infers whether the dataset is SWDA or MRDA and loads it."""
+        """Infers whether the dataset is a pickle, or raw SWDA/MRDA and loads it."""
+        if dataset_path.endswith('.pkl'):
+            with open(dataset_path, 'rb') as f:
+                corpus = pickle.load(f)
+                if isinstance(corpus, DialogActCorpus):
+                    return corpus
+                else:
+                    raise ValueError(
+                        f'The object found in the pickle is not an instance of DialogActCorpus (type: {type(corpus)})')
         if 'swda' in dataset_path:
             return DialogActCorpus.from_swda_path(
                 swda_path=dataset_path,
@@ -154,6 +162,7 @@ class DialogActCorpus:
             strip_punctuation_and_lowercase: bool = False,
             tagset: str = 'basic'
     ) -> 'DialogActCorpus':
+        from swda import CorpusReader
         cr = CorpusReader(swda_path)
         selected_calls = frozenset(chain.from_iterable(SWDA_SPLITS[split] for split in splits))
         dialogues = dict(
@@ -337,15 +346,15 @@ class Call(List['FunctionalSegment']):
                 break
 
             group = list(group)
-            words = ' '.join(t for t, _, _, _ in group).split()
+            words = ' '.join(segment.text for segment in group).split()
             doc = Doc(nlp.vocab, words=[labels[speakers.index(speaker)]] + words)
 
             ents = []
             begin = 1
-            for (t, act, _, _) in group:
-                words = t.split()
+            for segment in group:
+                words = segment.text.split()
                 end = begin + len(words)
-                ents.append(Span(doc, begin, end, label=act or 'None'))
+                ents.append(Span(doc, begin, end, label=segment.dialog_act or 'None'))
                 begin = end
             doc.ents = ents
 
@@ -446,6 +455,8 @@ class FunctionalSegment(NamedTuple):
     dialog_act: Optional[str]
     speaker: str
     is_continuation: bool = False
+    start: Optional[float] = None
+    end: Optional[float] = None
 
     def words_with_metadata(self) -> Iterable[Tuple[str, Optional[str], str]]:
         for word in self.text.split():
@@ -462,7 +473,7 @@ class EncodedSegment(NamedTuple):
 
 
 def parse_swda_transcript(
-        swda_tr: Transcript,
+        swda_tr,  # swda.Transcript
         strip_punctuation_and_lowercase: bool = False,
         tagset: str = 'basic'
 ) -> Tuple[str, Call]:
@@ -520,7 +531,7 @@ def lookup_or_fix(tag: str, dialog_acts: Mapping[str, str]) -> str:
     return 'Other'
 
 
-def decode_swda_id(transcript: Transcript) -> str:
+def decode_swda_id(transcript) -> str:
     return f"sw{transcript.swda_filename.split('_')[2].split('.')[0]}"
 
 
