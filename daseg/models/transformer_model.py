@@ -1,12 +1,11 @@
 import json
 from functools import partial
-from itertools import chain
 from pathlib import Path
-from typing import Any, Dict, Optional, List, Tuple, Union, Iterable
+from typing import Any, Dict, Optional, List, Tuple, Union
 
 import numpy as np
 import torch
-from cytoolz.itertoolz import identity, sliding_window
+from cytoolz.itertoolz import identity
 from more_itertools import flatten
 from torch import nn
 from torch.nn import DataParallel
@@ -21,10 +20,9 @@ from transformers import (
     ReformerTokenizer
 )
 
-from daseg import FunctionalSegment
-from daseg.data import DialogActCorpus, Call, NEW_TURN, is_begin_act, is_continued_act, \
-    decode_act, BLANK
-from daseg.dataloader import to_transformers_ner_format
+from daseg.conversion import predictions_to_dataset
+from daseg.data import DialogActCorpus
+from daseg.dataloaders.transformers import to_transformers_ner_format
 from daseg.metrics import compute_sklearn_metrics, compute_seqeval_metrics, compute_zhao_kawahara_metrics
 from daseg.models.longformer_model import LongformerForTokenClassification
 from daseg.models.reformer_model import ReformerForTokenClassification
@@ -232,113 +230,3 @@ def predict_batch_in_windows(
     return ce_loss, crf_loss, np.concatenate(logits, axis=1), batch[3].detach().cpu().numpy()
 
 
-def predictions_to_dataset(
-        original_dataset: DialogActCorpus,
-        predictions: List[List[str]],
-        begin_determines_act: bool = False,
-        use_joint_coding: bool = False
-) -> DialogActCorpus:
-    dialogues = {}
-    for (call_id, call), pred_tags in zip(original_dataset.dialogues.items(), predictions):
-        words, _, speakers = call.words_with_metadata(add_turn_token=True)
-        assert len(words) == len(pred_tags), \
-            f'Mismatched words ({len(words)}) and predicted tags ({len(pred_tags)}) counts'
-
-        def turns(pairs: Iterable[Tuple[str, str, str]]):
-            turn = []
-            for word, tag, speaker in pairs:
-                if NEW_TURN in word or not word:
-                    yield turn
-                    turn = []
-                    continue
-                turn.append((word, tag, speaker))
-            if turn:
-                yield turn
-
-        def segments(turns: Iterable[List[Tuple[str, str, str]]]):
-            for turn in turns:
-                prev_tag = None
-                segment = []
-                for word, tag, speaker in turn:
-                    if prev_tag is None or tag == prev_tag or (
-                            is_begin_act(prev_tag) and is_continued_act(tag) and decode_act(prev_tag) == decode_act(
-                        tag)):
-                        segment.append((word, tag, speaker))
-                    else:
-                        yield FunctionalSegment(
-                            text=' '.join(w for w, _, _ in segment),
-                            dialog_act=decode_act(segment[0][1]),
-                            speaker=segment[0][2]
-                        )
-                        segment = [(word, tag, speaker)]
-                    prev_tag = tag
-                if segment:
-                    yield FunctionalSegment(
-                        text=' '.join(w for w, _, _ in segment),
-                        dialog_act=decode_act(segment[0][1]),
-                        speaker=segment[0][2]
-                    )
-
-        def segments_common_continuation_token(turns):
-            for turn in turns:
-                prev_tag = None
-                segment = []
-                for word, tag, speaker in turn:
-                    if prev_tag is None or is_continued_act(tag):
-                        segment.append((word, tag, speaker))
-                    else:
-                        yield FunctionalSegment(
-                            text=' '.join(w for w, _, _ in segment),
-                            dialog_act=decode_act(segment[0][1]),
-                            speaker=segment[0][2]
-                        )
-                        segment = [(word, tag, speaker)]
-                    prev_tag = tag
-                if segment:
-                    yield FunctionalSegment(
-                        text=' '.join(w for w, _, _ in segment),
-                        dialog_act=decode_act(segment[0][1]),
-                        speaker=segment[0][2]
-                    )
-
-        def segments_joint_coding(turns):
-
-            def inner():
-                for turn in turns:
-                    segment = []
-                    for word, tag, speaker in turn:
-                        segment.append((word, tag, speaker))
-                        if not is_continued_act(tag):
-                            yield FunctionalSegment(
-                                text=' '.join(w for w, _, _ in segment),
-                                dialog_act=decode_act(segment[-1][1]),
-                                speaker=segment[-1][2]
-                            )
-                            segment = []
-                    if segment:
-                        yield FunctionalSegment(
-                            text=' '.join(w for w, _, _ in segment),
-                            dialog_act='?',
-                            speaker=segment[0][2]
-                        )
-
-            segments = []
-            for segment, next_segment in sliding_window(2, chain(inner(), [None])):
-                if segment.dialog_act == '?':
-                    segment = FunctionalSegment(
-                        text=segment.text,
-                        dialog_act=next_segment.dialog_act if next_segment is not None else BLANK,
-                        speaker=segment.speaker
-                    )
-                segments.append(segment)
-            return segments
-
-        segmentation = segments
-        if begin_determines_act:
-            segmentation = segments_common_continuation_token
-        if use_joint_coding:
-            segmentation = segments_joint_coding
-
-        dialogues[call_id] = Call(segmentation(turns(zip(words, pred_tags, speakers))))
-
-    return DialogActCorpus(dialogues=dialogues)

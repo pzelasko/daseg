@@ -3,10 +3,11 @@ Utilities for retrieving, manipulating and storing the dialog act data.
 """
 import pickle
 import re
+from collections import Counter
 from functools import partial
 from itertools import groupby, chain
 from pathlib import Path
-from typing import NamedTuple, Tuple, List, FrozenSet, Iterable, Dict, Optional, Callable, Mapping
+from typing import NamedTuple, Tuple, List, FrozenSet, Iterable, Dict, Optional, Callable, Mapping, Set
 
 from cytoolz.itertoolz import sliding_window
 from more_itertools import flatten
@@ -38,6 +39,8 @@ BLANK = 'O'
 
 # Marks new turn for sequence tagging models (e.g. "I am here <TURN> Okay")
 NEW_TURN = '<TURN>'
+
+OOV = '<UNK>'
 
 
 class DialogActCorpus:
@@ -192,6 +195,11 @@ class DialogActCorpus:
         return list(self.dialogues.values())
 
     @property
+    def turns(self) -> Iterable[List['FunctionalSegment']]:
+        for call in self.dialogues.values():
+            yield from (segments for spk, segments in call.turns)
+
+    @property
     def dialog_acts(self) -> List[str]:
         return sorted(set(segment.dialog_act for call in self.calls for segment in call))
 
@@ -202,8 +210,19 @@ class DialogActCorpus:
         )) + [BLANK]
 
     @property
-    def vocabulary(self) -> List[str]:
-        return sorted(set(w for call in self.calls for segment in call for w in segment.text.split()))
+    def joint_coding_dialog_act_labels(self) -> List[str]:
+        return list(chain([BLANK, CONTINUE_TAG], self.dialog_acts))
+
+    @property
+    def vocabulary(self) -> Counter:
+        return Counter(w for call in self.calls for segment in call for w in segment.text.split())
+
+    def with_limited_vocabulary(self, n_most_common: int = 10000) -> 'DialogActCorpus':
+        vocab = {w for w, n in self.vocabulary.most_common(n_most_common)}
+        return DialogActCorpus(
+            dialogues={call_id: call.with_vocabulary(vocab) for call_id, call in self.dialogues.items()},
+            splits=self.splits
+        )
 
     def __len__(self) -> int:
         return len(self.dialogues)
@@ -375,6 +394,9 @@ class Call(List['FunctionalSegment']):
                 yield idx, idx + n_toks
             idx += n_toks
 
+    def with_vocabulary(self, vocabulary: Set[str]) -> 'Call':
+        return Call(segment.with_vocabulary(vocabulary) for segment in self)
+
     def encode(
             self,
             use_joint_coding: bool = False,
@@ -460,6 +482,10 @@ class FunctionalSegment(NamedTuple):
     def words_with_metadata(self) -> Iterable[Tuple[str, Optional[str], str]]:
         for word in self.text.split():
             yield word, self.dialog_act, self.speaker
+
+    def with_vocabulary(self, vocabulary: Set[str]) -> 'FunctionalSegment':
+        new_text = ' '.join(w if w in vocabulary else OOV for w in self.text.split())
+        return FunctionalSegment(new_text, *self[1:])
 
 
 class EncodedSegment(NamedTuple):

@@ -5,8 +5,14 @@ from pathlib import Path
 from typing import Optional
 
 import click
+import pytorch_lightning as pl
+from pytorch_lightning.callbacks import ModelCheckpoint
+from torch.utils.data.dataloader import DataLoader
 
 from daseg import DialogActCorpus, TransformerModel
+from daseg.data import BLANK
+from daseg.dataloaders.zhao_kawahara import ZhaoKawaharaDataset, padding_collate_fn
+from daseg.models.bigru import ZhaoKawaharaBiGru
 from daseg.slack import SlackNotifier
 
 
@@ -108,6 +114,63 @@ def evaluate(
     if save_output is not None:
         with open(save_output, 'wb') as f:
             pickle.dump(results, f)
+
+
+@cli.command()
+@click.argument('output-dir', type=click.Path())
+@click.option('--dataset-path', default='deps/swda/swda', type=click.Path(exists=True))
+@click.option('--batch-size', default=30, type=int)
+@click.option('-p', '--strip-punctuation-and-lowercase', is_flag=True)
+@click.option('-s', '--tagset', default='basic',
+              type=click.Choice(['basic', 'general', 'full', 'custom', 'segmentation']))
+@click.option('-g', '--num-gpus', default=0, type=int)
+def train_bigru(output_dir, dataset_path, batch_size, strip_punctuation_and_lowercase, tagset, num_gpus):
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    pl.seed_everything(1050)
+    corpus = DialogActCorpus.from_path(
+        dataset_path,
+        strip_punctuation_and_lowercase=strip_punctuation_and_lowercase,
+        tagset=tagset
+    ).with_limited_vocabulary(10000)
+    word2idx = {w: i + 1 for i, w in enumerate(corpus.vocabulary.keys())}
+    tag2idx = {t: i for i, t in enumerate(t for t in corpus.joint_coding_dialog_act_labels if t != BLANK)}
+    with open(output_path / 'word2idx', 'w') as f:
+        for k, v in word2idx.items(): print(f'{k} {v}', file=f)
+    with open(output_path / 'tag2idx', 'w') as f:
+        for k, v in tag2idx.items(): print(f'{k} {v}', file=f)
+    loaders = {
+        key: DataLoader(
+            dataset=ZhaoKawaharaDataset(split_corpus, word2idx=word2idx, tag2idx=tag2idx),
+            batch_size=batch_size,
+            shuffle=key == 'train',
+            collate_fn=padding_collate_fn
+        )
+        for key, split_corpus in corpus.train_dev_test_split().items()
+    }
+    model = ZhaoKawaharaBiGru(vocab=word2idx, labels=tag2idx)
+    trainer = pl.Trainer(
+        gradient_clip_val=25.0,  # note: not necessarily the right method of gradient clipping
+        default_root_dir=output_dir,
+        gpus=num_gpus,
+        deterministic=True,
+        checkpoint_callback=ModelCheckpoint(
+            filepath=output_dir,
+            verbose=True,
+            monitor='val_loss',
+            mode='min'
+        ),
+        max_epochs=10
+    )
+    trainer.fit(
+        model=model,
+        train_dataloader=loaders['train'],
+        val_dataloaders=loaders['dev']
+    )
+    trainer.test(
+        model=model,
+        test_dataloaders=loaders['test']
+    )
 
 
 if __name__ == '__main__':
