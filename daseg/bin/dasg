@@ -17,7 +17,7 @@ def cli():
 
 @cli.command()
 @click.argument('output_dir', type=click.Path())
-@click.option('--dataset-path', default='deps/swda/swda', type=click.Path(exists=True, file_okay=False))
+@click.option('--dataset-path', default='deps/swda/swda', type=click.Path(exists=True))
 @click.option('--window-size', type=int, default=None)
 @click.option('--window-overlap', type=int, default=None)
 @click.option('-p', '--strip-punctuation-and-lowercase', is_flag=True)
