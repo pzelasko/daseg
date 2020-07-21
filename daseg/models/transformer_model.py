@@ -25,9 +25,9 @@ from daseg import FunctionalSegment
 from daseg.data import DialogActCorpus, Call, NEW_TURN, is_begin_act, is_continued_act, \
     decode_act, BLANK
 from daseg.dataloader import to_transformers_ner_format
-from daseg.longformer_model import LongformerForTokenClassification
 from daseg.metrics import compute_sklearn_metrics, compute_seqeval_metrics, compute_zhao_kawahara_metrics
-from daseg.reformer_model import ReformerForTokenClassification
+from daseg.models.longformer_model import LongformerForTokenClassification
+from daseg.models.reformer_model import ReformerForTokenClassification
 
 __all__ = ['TransformerModel']
 

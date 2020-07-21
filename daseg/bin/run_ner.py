@@ -42,12 +42,12 @@ from transformers.modeling_auto import MODEL_MAPPING
 
 from daseg import TransformerModel
 from daseg.data import NEW_TURN
-from daseg.longformer_model import LongformerForTokenClassification
-from daseg.recurrent_model import RNNForTokenClassification
-from daseg.reformer_model import ReformerForTokenClassification
+from daseg.models.longformer_model import LongformerForTokenClassification
+from daseg.models.recurrent_model import RNNForTokenClassification
+from daseg.models.reformer_model import ReformerForTokenClassification
+from daseg.models.xlnet import XLNetCRFForTokenClassification
 from daseg.slack import SlackNotifier
 from daseg.utils_ner import convert_examples_to_features, get_labels, read_examples_from_file
-from daseg.xlnet import XLNetCRFForTokenClassification
 
 try:
     from torch.utils.tensorboard import SummaryWriter

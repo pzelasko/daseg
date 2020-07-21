@@ -1,2 +1,2 @@
 from .data import *
-from .transformer_model import *
+from .models.transformer_model import *

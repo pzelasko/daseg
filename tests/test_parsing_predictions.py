@@ -1,7 +1,7 @@
 import pytest
 
 from daseg import DialogActCorpus, Call, FunctionalSegment
-from daseg.transformer_model import predictions_to_dataset
+from daseg.models.transformer_model import predictions_to_dataset
 
 
 @pytest.fixture

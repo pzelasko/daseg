@@ -183,10 +183,6 @@ class DialogActCorpus:
         )
         return DialogActCorpus(dialogues)
 
-    @staticmethod
-    def from_transformers_predictions(preds_file_path: str) -> 'DialogActCorpus':
-        return read_transformers_preds(preds_file_path)
-
     @property
     def call_ids(self) -> List[str]:
         return list(self.dialogues.keys())
@@ -576,67 +572,6 @@ def decode_act(tag):
     if is_begin_act(tag) or is_continued_act(tag):
         return tag[2:]
     return tag
-
-
-def read_transformers_preds(preds_path: str) -> 'DialogActCorpus':
-    lines = (l.strip() for l in open(preds_path))
-
-    def calls(lines):
-        predictions = []
-        for line in lines:
-            if not line:
-                yield predictions
-                predictions = []
-                continue
-            predictions.append(line)
-        if predictions:
-            yield predictions
-
-    def turns(call):
-        turn = []
-        for line in call:
-            if NEW_TURN in line or not line:
-                yield turn
-                turn = []
-                continue
-            turn.append(line)
-        if turn:
-            yield turn
-
-    def segments(turn):
-        segment = []
-        prev_tag = None
-        for line in turn:
-            text, tag = line.split()
-            if prev_tag is None or tag == prev_tag or (
-                    is_begin_act(prev_tag) and is_continued_act(tag) and decode_act(prev_tag) == decode_act(tag)):
-                segment.append((text, tag))
-            else:
-                yield segment
-                segment = [(text, tag)]
-            prev_tag = tag
-        if segment:
-            yield segment
-
-    resolved_calls = []
-    for call in calls(lines):
-        resolved_segments = []
-        speaker = 'A'
-        for turn in turns(call):
-            for segment in segments(turn):
-                first_tag = segment[0][1]
-                resolved_segments.append(
-                    FunctionalSegment(
-                        text=' '.join(w for w, _ in segment),
-                        dialog_act=decode_act(first_tag),
-                        speaker=speaker,
-                        is_continuation=is_begin_act(first_tag)
-                    )
-                )
-            speaker = {'A': 'B', 'B': 'A'}[speaker]
-        resolved_calls.append(Call(resolved_segments))
-    # TODO: resolve correct call ids
-    return DialogActCorpus({str(i): c for i, c in zip(range(1000000), resolved_calls)})
 
 
 def create_text_normalizer(strip_punctuation_and_lowercase: bool = False) -> Callable[[str], str]:
