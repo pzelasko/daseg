@@ -435,7 +435,7 @@ def prepare_call_windows(
                 break
             indices.append((begin, end))
         # Handle the final window - if it's shorter, extend its beginning (more overlap but simpler to work with)
-        call_windows = [call[b: e] for b, e in indices]
+        call_windows = [Call(call[b: e]) for b, e in indices]
     else:
         call_windows = [call]
     return call_windows
