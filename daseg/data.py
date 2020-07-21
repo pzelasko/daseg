@@ -57,7 +57,10 @@ class DialogActCorpus:
             with open(dataset_path, 'rb') as f:
                 corpus = pickle.load(f)
                 if isinstance(corpus, DialogActCorpus):
-                    return corpus
+                    subsets = [data for key, data in corpus.train_dev_test_split().items() if key in splits]
+                    return DialogActCorpus(dialogues={
+                        id_: call for data in subsets for id_, call in data.dialogues.items()
+                    })
                 else:
                     raise ValueError(
                         f'The object found in the pickle is not an instance of DialogActCorpus (type: {type(corpus)})')
