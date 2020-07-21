@@ -2,7 +2,7 @@ import torch
 from torch import nn
 from torch.nn import CrossEntropyLoss
 from transformers import LongformerModel, LongformerConfig, BertPreTrainedModel, \
-    add_start_docstrings, LONGFORMER_PRETRAINED_MODEL_ARCHIVE_MAP
+    add_start_docstrings, LONGFORMER_PRETRAINED_MODEL_ARCHIVE_LIST
 from transformers.file_utils import add_start_docstrings_to_callable
 from transformers.modeling_roberta import ROBERTA_START_DOCSTRING, ROBERTA_INPUTS_DOCSTRING
 
@@ -14,7 +14,7 @@ from transformers.modeling_roberta import ROBERTA_START_DOCSTRING, ROBERTA_INPUT
 )
 class LongformerForTokenClassification(BertPreTrainedModel):
     config_class = LongformerConfig
-    pretrained_model_archive_map = LONGFORMER_PRETRAINED_MODEL_ARCHIVE_MAP
+    pretrained_model_archive_map = LONGFORMER_PRETRAINED_MODEL_ARCHIVE_LIST
     base_model_prefix = "longformer"
 
     def __init__(self, config):
