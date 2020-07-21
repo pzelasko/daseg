@@ -17,3 +17,4 @@ gluonnlp
 pandas
 seaborn
 mxnet
+pytorch-lightning==0.8.5
