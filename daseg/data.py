@@ -522,18 +522,18 @@ def parse_swda_transcript(
     # Resolve '+' into dialog act
     resolved_segments = []
     prev_tag = {'A': 'Other', 'B': 'Other'}  # there seems to be exactly one case where the first DA is '+'
-    for text, tag, spk, _ in segments:
-        is_continuation = tag == CONTINUATION
-        resolved_tag = prev_tag[spk] if is_continuation else tag
+    for segment in segments:
+        is_continuation = segment.dialog_act == CONTINUATION
+        resolved_tag = prev_tag[segment.speaker] if is_continuation else segment.speaker
         resolved_segments.append(
             FunctionalSegment(
-                text=text,
+                text=segment.text,
                 dialog_act=resolved_tag,
-                speaker=spk,
+                speaker=segment.speaker,
                 is_continuation=is_continuation
             )
         )
-        prev_tag[spk] = resolved_tag
+        prev_tag[segment.speaker] = resolved_tag
     return call_id, Call(resolved_segments)
 
 
