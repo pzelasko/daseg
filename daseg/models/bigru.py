@@ -1,3 +1,5 @@
+from typing import Dict, Optional
+
 import pytorch_lightning as pl
 import torch
 from more_itertools import flatten
@@ -9,8 +11,16 @@ from daseg.metrics import compute_sklearn_metrics, compute_zhao_kawahara_metrics
 
 
 class ZhaoKawaharaBiGru(pl.LightningModule):
-    def __init__(self, vocab, labels, word_embed_dim=200, gru_dim=100):
+    def __init__(
+            self,
+            vocab: Dict[str, int],
+            labels: Dict[str, int],
+            word_embed_dim=200,
+            gru_dim=100,
+            weight_drop: Optional[float] = None
+    ):
         super().__init__()
+        self.weight_drop = weight_drop
         self.vocab = vocab
         self.labels = labels
         self.vocab_size = len(vocab) + 1  # OOV token
@@ -57,7 +67,23 @@ class ZhaoKawaharaBiGru(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         word_indices, text_lengths, act_indices = batch
+
+        # WEIGHT DROP - replace original weights with "dropped out" version
+        if self.weight_drop is not None and 0 < self.weight_drop < 1:
+            with torch.no_grad():
+                orig_params = []
+                for n, p in self.utterance_gru.named_parameters():
+                    orig_params.append(p.clone())
+                    p.data = nn.functional.dropout(p.data, p=self.weight_drop) * (1 - self.weight_drop)
+
         logits = self(word_indices, text_lengths).transpose(1, 2)
+
+        # WEIGHT DROP - replace "dropped out" version with the original weights
+        if self.weight_drop is not None and 0 < self.weight_drop < 1:
+            with torch.no_grad():
+                for orig_p, (n, p) in zip(orig_params, self.utterance_gru.named_parameters()):
+                    p.data = orig_p.data
+
         loss = nn.functional.cross_entropy(input=logits, target=act_indices)
         return {'loss': loss}
 

@@ -11,7 +11,7 @@ from torch.utils.data.dataloader import DataLoader
 
 from daseg import DialogActCorpus, TransformerModel
 from daseg.data import BLANK
-from daseg.dataloaders.zhao_kawahara import ZhaoKawaharaDataset, padding_collate_fn
+from daseg.dataloaders.turns import SingleTurnDataset, padding_collate_fn
 from daseg.models.bigru import ZhaoKawaharaBiGru
 from daseg.slack import SlackNotifier
 
@@ -141,7 +141,7 @@ def train_bigru(output_dir, dataset_path, batch_size, strip_punctuation_and_lowe
         for k, v in tag2idx.items(): print(f'{k} {v}', file=f)
     loaders = {
         key: DataLoader(
-            dataset=ZhaoKawaharaDataset(split_corpus, word2idx=word2idx, tag2idx=tag2idx),
+            dataset=SingleTurnDataset(split_corpus, word2idx=word2idx, tag2idx=tag2idx),
             batch_size=batch_size,
             shuffle=key == 'train',
             collate_fn=padding_collate_fn
@@ -150,7 +150,7 @@ def train_bigru(output_dir, dataset_path, batch_size, strip_punctuation_and_lowe
     }
     model = ZhaoKawaharaBiGru(vocab=word2idx, labels=tag2idx)
     trainer = pl.Trainer(
-        gradient_clip_val=25.0,  # note: not necessarily the right method of gradient clipping
+        gradient_clip_val=5.0,  # note: not necessarily the right method of gradient clipping
         default_root_dir=output_dir,
         gpus=num_gpus,
         deterministic=True,

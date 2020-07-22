@@ -10,7 +10,7 @@ TEXT_PAD_ID = 0
 LABEL_PAD_ID = nn.CrossEntropyLoss().ignore_index
 
 
-class ZhaoKawaharaDataset(Dataset):
+class SingleTurnDataset(Dataset):
     def __init__(self, corpus: DialogActCorpus, word2idx: Dict[str, int], tag2idx: Dict[str, int]):
         super().__init__()
         self.word2idx = word2idx
