@@ -1,6 +1,6 @@
 from collections import defaultdict
 from itertools import chain
-from typing import List
+from typing import List, Set, Tuple
 
 import pandas as pd
 import seqeval.metrics as seqmetrics
@@ -8,7 +8,7 @@ import sklearn.metrics as sklmetrics
 from Bio import pairwise2
 from more_itertools import flatten
 
-from daseg import DialogActCorpus
+from daseg import DialogActCorpus, Call
 
 
 def compute_sklearn_metrics(true_labels: List[List[str]], predictions: List[List[str]]):
@@ -42,7 +42,7 @@ def compute_seqeval_metrics(true_labels: List[List[str]], predictions: List[List
     }
 
 
-def compute_zhao_kawahara_metrics(true_dataset: DialogActCorpus, pred_dataset: DialogActCorpus):
+def compute_zhao_kawahara_metrics_levenshtein(true_dataset: DialogActCorpus, pred_dataset: DialogActCorpus):
     """
     Source:
     Zhao, T., & Kawahara, T. (2019). Joint dialog act segmentation and recognition in human conversations using
@@ -161,3 +161,74 @@ def compute_span_errors(true_dataset: DialogActCorpus, pred_dataset: DialogActCo
             else:
                 stats['sub'] += score
     return stats
+
+
+def compute_zhao_kawahara_metrics(true_dataset: DialogActCorpus, pred_dataset: DialogActCorpus):
+    """
+    THIS VERSION DOES NOT ALLOW THE ERROR TO EXCEED 100% - IT ONLY COUNTS IF THE REFERENCE SEGMENTS ARE FOUND
+    IN THE PREDICTIONS.
+
+    Source:
+    Zhao, T., & Kawahara, T. (2019). Joint dialog act segmentation and recognition in human conversations using
+    attention to dialog context. Computer Speech & Language, 57, 108-127.
+
+    Segmentation metrics:
+
+    DSER (DA Segmentation Error Rate) computes the number of utterances whose boundaries are incorrectly predicted
+    divided by the total number of utterances. We regard it as a segment-level segmentation error rate.
+
+    Segmentation WER (Segmentation Word Error Rate) is weighted by the word counts of utterances.
+    It computes the number of tokens whose corresponding utterance boundaries are incorrectly predicted divided by the
+    total number of tokens.
+
+    Joint metrics:
+
+    DER (DA Error Rate) is similar to the DSER measure, but an utterance is considered to be correct only when its
+    boundaries and DA type are all correct.
+
+    Joint WER (Joint Word Error Rate) is similar to the Segmentation WER measure,
+    and it also requires both bound- aries and DA type to be correctly predicted.
+    """
+
+    counts = {
+        'DSER': 0,
+        'SegmentationWER': 0,
+        'DER': 0,
+        'JointWER': 0,
+    }
+    total_segments = 0
+    total_words = 0
+
+    def build_segment_set(call: Call, with_labels: bool) -> Set[Tuple]:
+        segment_set = set()
+        word_pos = 0
+        for segment in call:
+            n_words = len(segment.text.split())
+            segment_set.add((word_pos, word_pos + n_words) + ((segment.dialog_act,) if with_labels else ()))
+            word_pos += n_words
+        return segment_set
+
+    for true_call, pred_call in zip(true_dataset.calls, pred_dataset.calls):
+        true_segments = build_segment_set(true_call, with_labels=False)
+        pred_segments = build_segment_set(pred_call, with_labels=False)
+        error_segments = true_segments - pred_segments
+        for segment in error_segments:
+            counts['DSER'] += 1
+            counts['SegmentationWER'] += segment[1] - segment[0]
+
+        true_segments = build_segment_set(true_call, with_labels=True)
+        pred_segments = build_segment_set(pred_call, with_labels=True)
+        error_segments = true_segments - pred_segments
+        for segment in error_segments:
+            counts['DER'] += 1
+            counts['JointWER'] += segment[1] - segment[0]
+
+        total_segments += len(true_call)
+        total_words += len(true_call.words(add_turn_token=False))
+
+    return {
+        'DSER': counts['DSER'] / total_segments,
+        'SegmentationWER': counts['SegmentationWER'] / total_words,
+        'DER': counts['DER'] / total_segments,
+        'JointWER': counts['JointWER'] / total_words
+    }

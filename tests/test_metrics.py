@@ -26,3 +26,24 @@ def test_zhao_kwahara_metrics():
     assert metrics['SegmentationWER'] == 6 / 11
     assert metrics['DER'] == 3 / 4
     assert metrics['JointWER'] == 8 / 11
+
+
+def test_zhao_kwahara_metrics_segment_insertion():
+    true_dataset = DialogActCorpus(dialogues={
+        'call1': Call([
+            FunctionalSegment('a b c', dialog_act='sd', speaker='A'),
+        ])
+    })
+
+    pred_dataset = DialogActCorpus(dialogues={
+        'call1': Call([
+            FunctionalSegment('a', dialog_act='sd', speaker='A'),
+            FunctionalSegment('b c', dialog_act='sd', speaker='A'),
+        ])
+    })
+
+    metrics = compute_zhao_kawahara_metrics(true_dataset=true_dataset, pred_dataset=pred_dataset)
+    assert metrics['DSER'] == 1 / 1
+    assert metrics['SegmentationWER'] == 3 / 3
+    assert metrics['DER'] == 1 / 1
+    assert metrics['JointWER'] == 3 / 3
