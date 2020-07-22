@@ -124,7 +124,9 @@ def evaluate(
 @click.option('-s', '--tagset', default='basic',
               type=click.Choice(['basic', 'general', 'full', 'custom', 'segmentation']))
 @click.option('-g', '--num-gpus', default=0, type=int)
-def train_bigru(output_dir, dataset_path, batch_size, strip_punctuation_and_lowercase, tagset, num_gpus):
+@click.option('-f', '--frequency-weighted', is_flag=True)
+def train_bigru(output_dir, dataset_path, batch_size, strip_punctuation_and_lowercase, tagset, num_gpus,
+                frequency_weighted):
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     pl.seed_everything(1050)
@@ -148,7 +150,13 @@ def train_bigru(output_dir, dataset_path, batch_size, strip_punctuation_and_lowe
         )
         for key, split_corpus in corpus.train_dev_test_split().items()
     }
-    model = ZhaoKawaharaBiGru(vocab=word2idx, labels=tag2idx, weight_drop=0.5)
+    model = ZhaoKawaharaBiGru(
+        vocab=word2idx,
+        labels=tag2idx,
+        weight_drop=0.5,
+        label_frequencies=loaders[
+            'train'].dataset.corpus.joint_coding_dialog_act_label_frequencies if frequency_weighted else None
+    )
     trainer = pl.Trainer(
         gradient_clip_val=25.0,  # note: not necessarily the right method of gradient clipping
         default_root_dir=output_dir,

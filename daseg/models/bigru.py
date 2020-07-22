@@ -15,6 +15,7 @@ class ZhaoKawaharaBiGru(pl.LightningModule):
             self,
             vocab: Dict[str, int],
             labels: Dict[str, int],
+            label_frequencies: Optional[Dict[str, int]] = None,
             word_embed_dim=200,
             gru_dim=100,
             weight_drop: Optional[float] = None
@@ -27,19 +28,24 @@ class ZhaoKawaharaBiGru(pl.LightningModule):
         self.labels_size = len(labels)
 
         self.word_embedding = nn.Embedding(num_embeddings=self.vocab_size, embedding_dim=word_embed_dim, padding_idx=0)
-        # self.tag_embedding = nn.Embedding(num_embeddings=44, embedding_dim=30)
-        # self.utterance_gru = WeightDropGRU(
         self.utterance_gru = nn.GRU(
             input_size=word_embed_dim,
             hidden_size=gru_dim,
             num_layers=1,
-            # weight_dropout=0.5,
             bidirectional=True,
             batch_first=True
         )
         self.classifier = nn.Linear(in_features=2 * gru_dim, out_features=self.labels_size)
         self.micro_f1 = pl.metrics.sklearns.F1(labels=list(self.labels), average='micro')
         self.macro_f1 = pl.metrics.sklearns.F1(labels=list(self.labels), average='macro')
+        label_weights = None
+        if label_frequencies is not None:
+            label_weights = (
+                    1. / (torch.tensor([label_frequencies[key] for key in labels], dtype=torch.float32) / sum(
+                label_frequencies.values()))
+
+            )
+        self.loss = nn.CrossEntropyLoss(weight=label_weights)
 
     def init_weights(self):
         nn.init.uniform_(self.word_embedding.weight, -1.0, 1.0)
@@ -84,13 +90,13 @@ class ZhaoKawaharaBiGru(pl.LightningModule):
                 for orig_p, (n, p) in zip(orig_params, self.utterance_gru.named_parameters()):
                     p.data = orig_p.data
 
-        loss = nn.functional.cross_entropy(input=logits, target=act_indices)
+        loss = self.loss(input=logits, target=act_indices)
         return {'loss': loss}
 
     def _common_step(self, batch, batch_idx, prefix):
         word_indices, text_lengths, act_indices = batch
         logits = self(word_indices, text_lengths).transpose(1, 2)
-        loss = nn.functional.cross_entropy(input=logits, target=act_indices)
+        loss = self.loss(input=logits, target=act_indices)
         return {
             f'{prefix}_loss': loss,
             'logits': logits.detach(),

@@ -212,6 +212,19 @@ class DialogActCorpus:
         )) + [BLANK]
 
     @property
+    def dialog_act_frequencies(self):
+        return Counter(segment.dialog_act for call in self.calls for segment in call)
+
+    @property
+    def joint_coding_dialog_act_label_frequencies(self):
+        return Counter(
+            segment.dialog_act if idx == 0 else CONTINUE_TAG
+            for call in self.calls
+            for segment in call
+            for idx, word in enumerate(segment.text.split())
+        )
+
+    @property
     def joint_coding_dialog_act_labels(self) -> List[str]:
         return list(chain([BLANK, CONTINUE_TAG], self.dialog_acts))
 

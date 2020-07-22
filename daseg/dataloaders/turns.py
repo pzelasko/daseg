@@ -13,9 +13,10 @@ LABEL_PAD_ID = nn.CrossEntropyLoss().ignore_index
 class SingleTurnDataset(Dataset):
     def __init__(self, corpus: DialogActCorpus, word2idx: Dict[str, int], tag2idx: Dict[str, int]):
         super().__init__()
+        self.corpus = corpus
         self.word2idx = word2idx
         self.tag2idx = tag2idx
-        self.turns = list(map(Call, corpus.turns))
+        self.turns = list(map(Call, self.corpus.turns))
         x = 1
 
     def __getitem__(self, item):
