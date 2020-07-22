@@ -51,7 +51,7 @@ export NUM_EPOCHS=30
 export SAVE_STEPS=500
 export SEED=1
 
-python3 /export/c12/pzelasko/daseg/daseg/daseg/run_ner.py --data_dir ./ \
+python3 /export/c12/pzelasko/daseg/daseg/daseg/bin/run_ner.py --data_dir ./ \
 --crf_loss_weight 0.0 \
 --model_type $MODEL_TYPE \
 --labels ./labels.txt \
