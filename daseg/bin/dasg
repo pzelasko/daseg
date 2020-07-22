@@ -148,9 +148,9 @@ def train_bigru(output_dir, dataset_path, batch_size, strip_punctuation_and_lowe
         )
         for key, split_corpus in corpus.train_dev_test_split().items()
     }
-    model = ZhaoKawaharaBiGru(vocab=word2idx, labels=tag2idx)
+    model = ZhaoKawaharaBiGru(vocab=word2idx, labels=tag2idx, weight_drop=0.5)
     trainer = pl.Trainer(
-        gradient_clip_val=5.0,  # note: not necessarily the right method of gradient clipping
+        gradient_clip_val=25.0,  # note: not necessarily the right method of gradient clipping
         default_root_dir=output_dir,
         gpus=num_gpus,
         deterministic=True,
