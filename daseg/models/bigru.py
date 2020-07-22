@@ -46,11 +46,14 @@ class ZhaoKawaharaBiGru(pl.LightningModule):
 
             )
         self.loss = nn.CrossEntropyLoss(weight=label_weights)
+        self.init_weights()
 
     def init_weights(self):
         nn.init.uniform_(self.word_embedding.weight, -1.0, 1.0)
         # nn.init.uniform_(self.tag_embedding.weight, -1.0, 1.0)
-        nn.init.xavier_uniform_(self.utterance_gru.all_weights)
+        for name, weight in self.utterance_gru.named_parameters():
+            if len(weight.shape) > 1:
+                nn.init.xavier_uniform_(weight, gain=nn.init.calculate_gain('tanh'))
         nn.init.uniform_(self.classifier.weight, -0.08, 0.08)
         # other weights: uniform [-0.08, 0.08]
 
