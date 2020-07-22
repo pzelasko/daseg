@@ -31,14 +31,12 @@ from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, Tenso
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
 from transformers import (
-    ALL_PRETRAINED_MODEL_ARCHIVE_MAP,
     WEIGHTS_NAME,
     AdamW,
     AutoModelForTokenClassification,
     AutoTokenizer,
     get_linear_schedule_with_warmup, AutoConfig, XLNetForTokenClassification
 )
-from transformers.modeling_auto import MODEL_MAPPING
 
 from daseg import TransformerModel
 from daseg.data import NEW_TURN
@@ -57,9 +55,6 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 torch.set_num_interop_threads(4)
-
-ALL_MODELS = tuple(ALL_PRETRAINED_MODEL_ARCHIVE_MAP)
-MODEL_CLASSES = tuple(m.model_type for m in MODEL_MAPPING)
 
 TOKENIZER_ARGS = ["do_lower_case", "strip_accents", "keep_accents", "use_fast"]
 
@@ -378,14 +373,14 @@ def main():
         default=None,
         type=str,
         required=True,
-        help="Model type selected in the list: " + ", ".join(MODEL_CLASSES),
+        help="Model type selected in the list",
     )
     parser.add_argument(
         "--model_name_or_path",
         default=None,
         type=str,
         required=True,
-        help="Path to pre-trained model or shortcut name selected in the list: " + ", ".join(ALL_MODELS),
+        help="Path to pre-trained model or shortcut name selected in the list",
     )
     parser.add_argument(
         "--output_dir",
