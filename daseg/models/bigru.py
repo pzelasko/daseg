@@ -84,6 +84,7 @@ class ZhaoKawaharaBiGru(pl.LightningModule):
                 for n, p in self.utterance_gru.named_parameters():
                     orig_params.append(p.clone())
                     p.data = nn.functional.dropout(p.data, p=self.weight_drop) * (1 - self.weight_drop)
+                self.utterance_gru.flatten_parameters()
 
         logits = self(word_indices, text_lengths).transpose(1, 2)
 
