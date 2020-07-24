@@ -45,7 +45,7 @@ class ZhaoKawaharaBiGru(pl.LightningModule):
                 label_frequencies.values()))
 
             )
-        self.loss = nn.CrossEntropyLoss(weight=label_weights)
+        self.loss = nn.CrossEntropyLoss(weight=label_weights, reduction='sum')
         self.init_weights()
 
     def init_weights(self):
