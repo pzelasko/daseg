@@ -28,6 +28,7 @@ def cli():
 @click.option('--window-overlap', type=int, default=None)
 @click.option('-p', '--strip-punctuation-and-lowercase', is_flag=True)
 @click.option('-c', '--continuations-allowed', is_flag=True)
+@click.option('-m', '--merge-continuations', is_flag=True)
 @click.option('-t', '--window-test', is_flag=True)
 @click.option('-s', '--tagset', default='basic',
               type=click.Choice(['basic', 'general', 'full', 'custom', 'segmentation']))
@@ -39,6 +40,7 @@ def prepare_data(
         window_overlap: Optional[int],
         strip_punctuation_and_lowercase: bool,
         continuations_allowed: bool,
+        merge_continuations: bool,
         window_test: bool,
         tagset: str,
         no_joint_coding: bool
@@ -48,7 +50,8 @@ def prepare_data(
     dataset = DialogActCorpus.from_path(
         dataset_path=dataset_path,
         strip_punctuation_and_lowercase=strip_punctuation_and_lowercase,
-        tagset=tagset
+        tagset=tagset,
+        merge_continuations=merge_continuations
     )
     for split_name, split_dataset in dataset.train_dev_test_split().items():
         split_dataset.dump_for_transformers_ner(
@@ -69,6 +72,7 @@ def prepare_data(
 @click.option('--device', default='cpu', type=str)
 @click.option('-o', '--save-output', default=None, type=click.Path())
 @click.option('-p', '--strip-punctuation-and-lowercase', is_flag=True)
+@click.option('-m', '--merge-continuations', is_flag=True)
 @click.option('-r', '--begin-determines-act', is_flag=True)
 @click.option('-s', '--tagset', default='basic',
               type=click.Choice(['basic', 'general', 'full', 'custom', 'segmentation']))
@@ -84,6 +88,7 @@ def evaluate(
         device: str,
         save_output: Optional[str],
         strip_punctuation_and_lowercase: bool,
+        merge_continuations: bool,
         begin_determines_act: bool,
         tagset: str,
         dont_propagate_context: bool,
@@ -94,7 +99,8 @@ def evaluate(
         dataset_path,
         splits=[split],
         strip_punctuation_and_lowercase=strip_punctuation_and_lowercase,
-        tagset=tagset
+        tagset=tagset,
+        merge_continuations=merge_continuations
     )
     model = TransformerModel.from_path(Path(model_path), device=device)
     results = model.predict(
@@ -121,19 +127,29 @@ def evaluate(
 @click.option('--dataset-path', default='deps/swda/swda', type=click.Path(exists=True))
 @click.option('--batch-size', default=30, type=int)
 @click.option('-p', '--strip-punctuation-and-lowercase', is_flag=True)
+@click.option('-m', '--merge-continuations', is_flag=True)
 @click.option('-s', '--tagset', default='basic',
               type=click.Choice(['basic', 'general', 'full', 'custom', 'segmentation']))
 @click.option('-g', '--num-gpus', default=0, type=int)
 @click.option('-f', '--frequency-weighted', is_flag=True)
-def train_bigru(output_dir, dataset_path, batch_size, strip_punctuation_and_lowercase, tagset, num_gpus,
-                frequency_weighted):
+def train_bigru(
+        output_dir: str,
+        dataset_path: str,
+        batch_size: int,
+        strip_punctuation_and_lowercase: bool,
+        merge_continuations: bool,
+        tagset: str,
+        num_gpus: int,
+        frequency_weighted: bool
+):
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     pl.seed_everything(1050)
     corpus = DialogActCorpus.from_path(
         dataset_path,
         strip_punctuation_and_lowercase=strip_punctuation_and_lowercase,
-        tagset=tagset
+        tagset=tagset,
+        merge_continuations=merge_continuations
     ).with_limited_vocabulary(10000)
     word2idx = {w: i + 1 for i, w in enumerate(corpus.vocabulary.keys())}
     tag2idx = {t: i for i, t in enumerate(t for t in corpus.joint_coding_dialog_act_labels if t != BLANK)}
@@ -158,7 +174,7 @@ def train_bigru(output_dir, dataset_path, batch_size, strip_punctuation_and_lowe
             'train'].dataset.corpus.joint_coding_dialog_act_label_frequencies if frequency_weighted else None
     )
     trainer = pl.Trainer(
-        gradient_clip_val=5.0,  # note: not necessarily the right method of gradient clipping
+        gradient_clip_val=0.5,  # note: not necessarily the right method of gradient clipping
         default_root_dir=output_dir,
         gpus=num_gpus,
         deterministic=True,

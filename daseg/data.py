@@ -16,8 +16,8 @@ from spacy.tokens.doc import Doc
 from spacy.tokens.span import Span
 from tqdm.autonotebook import tqdm
 
-from daseg.resources import SWDA_DIALOG_ACTS, COLORMAP, get_nlp, to_swda_42_labels, MRDA_BASIC_DIALOG_ACTS, \
-    MRDA_GENERAL_DIALOG_ACTS, MRDA_FULL_DIALOG_ACTS, SEGMENTATION_ONLY_ACTS, SEGMENT_TAG
+from daseg.resources import SWDA_BUGGY_DIALOG_ACTS, COLORMAP, get_nlp, to_buggy_swda_42_labels, MRDA_BASIC_DIALOG_ACTS, \
+    MRDA_GENERAL_DIALOG_ACTS, MRDA_FULL_DIALOG_ACTS, SEGMENTATION_ONLY_ACTS, SEGMENT_TAG, SWDA_TAG_TO_DIALOG_ACT
 from daseg.splits import SWDA_SPLITS
 
 __all__ = ['FunctionalSegment', 'Call', 'DialogActCorpus']
@@ -53,7 +53,8 @@ class DialogActCorpus:
             dataset_path: str,
             splits=('train', 'dev', 'test'),
             strip_punctuation_and_lowercase: bool = False,
-            tagset: str = 'basic'
+            tagset: str = 'basic',
+            merge_continuations: bool = False
     ):
         """Infers whether the dataset is a pickle, or raw SWDA/MRDA and loads it."""
         if dataset_path.endswith('.pkl'):
@@ -74,7 +75,8 @@ class DialogActCorpus:
                 swda_path=dataset_path,
                 splits=splits,
                 strip_punctuation_and_lowercase=strip_punctuation_and_lowercase,
-                tagset=tagset
+                tagset=tagset,
+                merge_continuations=merge_continuations
             )
         if 'mrda' in dataset_path:
             return DialogActCorpus.from_mrda_path(
@@ -90,7 +92,7 @@ class DialogActCorpus:
             mrda_path: str,
             splits=('train', 'dev', 'test'),
             strip_punctuation_and_lowercase: bool = False,
-            tagset: str = 'basic'
+            tagset: str = 'basic',
     ) -> 'DialogActCorpus':
         # (PZ) The code below is not super clean, I mostly copied and adapted the usage from
         # https://github.com/NathanDuran/MRDA-Corpus
@@ -168,7 +170,8 @@ class DialogActCorpus:
             swda_path: str,
             splits=('train', 'dev', 'test'),
             strip_punctuation_and_lowercase: bool = False,
-            tagset: str = 'basic'
+            merge_continuations: bool = False,
+            tagset: str = 'basic',
     ) -> 'DialogActCorpus':
         from swda import CorpusReader
         cr = CorpusReader(swda_path)
@@ -178,6 +181,7 @@ class DialogActCorpus:
                 partial(
                     parse_swda_transcript,
                     strip_punctuation_and_lowercase=strip_punctuation_and_lowercase,
+                    merge_continuations=merge_continuations,
                     tagset=tagset
                 ),
                 filter(
@@ -359,7 +363,7 @@ class Call(List['FunctionalSegment']):
         )
         return words, tags
 
-    def render(self, max_turns=None, jupyter=True, tagset=SWDA_DIALOG_ACTS.values()):
+    def render(self, max_turns=None, jupyter=True, tagset=SWDA_BUGGY_DIALOG_ACTS.values()):
         """Render the call as annotated with dialog acts in a Jupyter notebook"""
 
         # Render DAs options
@@ -515,26 +519,38 @@ class EncodedSegment(NamedTuple):
 def parse_swda_transcript(
         swda_tr,  # swda.Transcript
         strip_punctuation_and_lowercase: bool = False,
+        merge_continuations: bool = False,
         tagset: str = 'basic'
 ) -> Tuple[str, Call]:
     normalize_text = create_text_normalizer(strip_punctuation_and_lowercase)
     dialog_acts = {
-        'basic': to_swda_42_labels(SWDA_DIALOG_ACTS),
-        'custom': SWDA_DIALOG_ACTS,
+        'basic': SWDA_TAG_TO_DIALOG_ACT,
+        'broken_swda': to_buggy_swda_42_labels(SWDA_BUGGY_DIALOG_ACTS),
         'segmentation': SEGMENTATION_ONLY_ACTS
     }[tagset]
     call_id = decode_swda_id(swda_tr)
     segments = (
         FunctionalSegment(
             text=normalize_text(' '.join(utt.text_words(filter_disfluency=True))),
-            dialog_act=lookup_or_fix(utt.act_tag if tagset != 'segmentation' else SEGMENT_TAG, dialog_acts=dialog_acts),
+            dialog_act=(
+                dialog_acts[utt.damsl_act_tag()] if tagset == 'basic'
+                else lookup_or_fix(utt.act_tag if tagset != 'segmentation' else SEGMENT_TAG, dialog_acts=dialog_acts)
+            ),
             speaker=utt.caller
         ) for utt in swda_tr.utterances
     )
     # Remove segments which became empty as a result of text normalization (i.e. have no text, just punctuation)
     characters = re.compile(r'[a-zA-Z]+')
     segments = (seg for seg in segments if characters.search(seg.text))
-    # Resolve '+' into dialog act
+    resolved_segments = (
+        merge_continuations_with_their_previous_segments(segments)
+        if merge_continuations
+        else mark_continuations_as_separate_acts(segments)
+    )
+    return call_id, Call(resolved_segments)
+
+
+def mark_continuations_as_separate_acts(segments: Iterable[FunctionalSegment]) -> List[FunctionalSegment]:
     resolved_segments = []
     prev_tag = {'A': 'Other', 'B': 'Other'}  # there seems to be exactly one case where the first DA is '+'
     for segment in segments:
@@ -549,7 +565,35 @@ def parse_swda_transcript(
             )
         )
         prev_tag[segment.speaker] = resolved_tag
-    return call_id, Call(resolved_segments)
+    return resolved_segments
+
+
+def merge_continuations_with_their_previous_segments(segments: Iterable[FunctionalSegment]) -> List[FunctionalSegment]:
+    resolved_segments = []
+    for segment in segments:
+        is_continuation = segment.dialog_act == CONTINUATION
+        if is_continuation:
+            try:
+                index, prev_segment = [
+                    (idx, seg)
+                    for idx, seg in reversed(list(enumerate(resolved_segments)))
+                    if seg.speaker == segment.speaker
+                ][0]
+                resolved_segments[index] = FunctionalSegment(
+                    text=f'{prev_segment.text} {segment.text}',
+                    dialog_act=prev_segment.dialog_act,
+                    speaker=prev_segment.speaker,
+                )
+            except:
+                # Exactly one case of continuation being the beginning of the conversation
+                resolved_segments.append(FunctionalSegment(
+                    text=segment.text,
+                    dialog_act='Other',
+                    speaker=segment.speaker
+                ))
+        else:
+            resolved_segments.append(segment)
+    return resolved_segments
 
 
 def lookup_or_fix(tag: str, dialog_acts: Mapping[str, str]) -> str:
@@ -573,11 +617,6 @@ def lookup_or_fix(tag: str, dialog_acts: Mapping[str, str]) -> str:
 
 def decode_swda_id(transcript) -> str:
     return f"sw{transcript.swda_filename.split('_')[2].split('.')[0]}"
-
-
-"""
-Transformers IO specific methods.
-"""
 
 
 def to_transformers_ner_dataset(
@@ -620,33 +659,32 @@ def create_text_normalizer(strip_punctuation_and_lowercase: bool = False) -> Cal
         re.compile,
         [
             r'<<[^>]*>>',  # <<talks to another person>>
-            r'<[^>]*>',  # <noise>
             r'\(\([^)]*\)\)',  # ((Hailey)), what is that?
             r'\([^)]*\)',  # ... ?
             r'\(',  # unbalanced parentheses
             r'\)',  #
             r'#',  # comments?
+            r'\*.+'  # comments about typos: e.g. "i think their *their -> they're"
         ]
     ))
 
     if strip_punctuation_and_lowercase:
-        remove_patterns.append(
-            re.compile(r'[!"#$%&()*+,./:;<=>?@\[\\\]^_`{|}~]')
-        )
+        remove_patterns.append(re.compile(r'[!"#$%&()*+,./:;=?@\[\\\]^_`{|}~]'))
 
-    remove_leading_nontext = re.compile(r'^[^a-zA-Z]+([a-zA-Z])')
+    remove_leading_nontext = re.compile(r'^[^a-zA-Z<]+([a-zA-Z])')
     correct_punctuation_whitespace = re.compile(r' ([.,?!])')
     wild_dashes = re.compile(r'(\s-+\s|-+$)')
 
     def normalize(text: str) -> str:
         for p in remove_patterns:
             text = p.sub('', text)
+        text = text.replace('--', '')
         text = text.split('*')[0].strip()  # Comments after asterisk
         text = remove_leading_nontext.sub(r'\1', text)  # ". . Hi again." => "Hi again."
         text = correct_punctuation_whitespace.sub(r'\1', text)  # "Hi Jack ." -> "Hi Jack."
         if strip_punctuation_and_lowercase:
             text = wild_dashes.sub(' ', text).strip()
             text = text.lower()
-        return text
+        return ' '.join(text.split())
 
     return normalize

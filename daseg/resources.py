@@ -3,7 +3,7 @@ from typing import Dict
 
 import spacy
 
-__all__ = ['get_nlp', 'get_tokenizer', 'SWDA_DIALOG_ACTS']
+__all__ = ['get_nlp', 'get_tokenizer', 'SWDA_BUGGY_DIALOG_ACTS']
 
 
 @lru_cache(1)
@@ -17,7 +17,63 @@ def get_tokenizer():
     return nlp.Defaults.create_tokenizer(nlp)
 
 
-def to_swda_42_labels(dialog_acts: Dict[str, str]) -> Dict[str, str]:
+SEGMENT_TAG = 's'
+SEGMENTATION_ONLY_ACTS = {
+    SEGMENT_TAG: 'Segment'
+}
+
+SWDA_DIALOG_ACT_TO_TAG = {
+    "Statement-non-opinion": "sd",
+    "Acknowledge-Backchannel": "b",
+    "Statement-opinion": "sv",
+    "Agree-Accept": "aa",
+    "Abandoned-or-Turn-Exit": "%",
+    "Appreciation": "ba",
+    "Yes-No-Question": "qy",
+    "Non-verbal": "x",
+    "Yes-answers": "ny",
+    "Conventional-closing": "fc",
+    "Uninterpretable": "%",
+    "Wh-Question": "qw",
+    "No-answers": "nn",
+    "Response-Acknowledgement": "bk",
+    "Hedge": "h",
+    "Declarative-Yes-No-Question": "qy^d",
+    # Replace: "Other": "fo_o_fw_by_bc" with the following as it appears like that in SWDA
+    "Other": 'fo_o_fw_"_by_bc',
+    "Backchannel-in-question-form": "bh",
+    "Quotation": "^q",
+    "Summarize/reformulate": "bf",
+    "Affirmative-non-yes-answers": "na",
+    "Action-directive": "ad",
+    "Collaborative-Completion": "^2",
+    "Repeat-phrase": "b^m",
+    "Open-Question": "qo",
+    "Rhetorical-Questions": "qh",
+    "Hold-before-answer-agreement": "^h",
+    "Reject": "ar",
+    "Negative-non-no-answers": "ng",
+    "Signal-non-understanding": "br",
+    "Other-answers": "no",
+    "Conventional-opening": "fp",
+    "Or-Clause": "qrr",
+    "Dispreferred-answers": "arp_nd",
+    "3rd-party-talk": "t3",
+    "Offers-Options-Commits": "oo_co_cc",
+    "Self-talk": "t1",
+    "Downplayer": "bd",
+    "Maybe-Accept-part": "aap_am",
+    "Tag-Question": "^g",
+    "Declarative-Wh-Question": "qw^d",
+    "Apology": "fa",
+    "Thanking": "ft",
+    "+": "+"
+}
+
+SWDA_TAG_TO_DIALOG_ACT = {value: key for key, value in SWDA_DIALOG_ACT_TO_TAG.items()}
+
+
+def to_buggy_swda_42_labels(dialog_acts: Dict[str, str]) -> Dict[str, str]:
     reduced_dialog_acts = dialog_acts.copy()
     reduced_dialog_acts.update({
         'sd^e': 'Other',
@@ -28,12 +84,7 @@ def to_swda_42_labels(dialog_acts: Dict[str, str]) -> Dict[str, str]:
     return reduced_dialog_acts
 
 
-SEGMENT_TAG = 's'
-SEGMENTATION_ONLY_ACTS = {
-    SEGMENT_TAG: 'Segment'
-}
-
-SWDA_DIALOG_ACTS = {
+SWDA_BUGGY_DIALOG_ACTS = {
     'sd': 'Statement-non-opinion',
     'b': 'Acknowledge-Backchannel',
     'sv': 'Statement-opinion',
