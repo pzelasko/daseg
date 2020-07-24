@@ -2,14 +2,12 @@
 
 set -eou pipefail
 
-cd joint_coding
-
 mkdir -p swda_results
 
 for MODEL in longformer xlnet; do
   for LABEL in segmentation basic; do
     for CASE in lower nolower; do
-      for RECONSTRUCTION in default; do
+      for RECONSTRUCTION in default begin_based; do
         CASE_OPT=
         if [[ $CASE == lower ]]; then CASE_OPT="-p"; fi
         RECONSTRUCTION_OPT=
@@ -26,10 +24,11 @@ for MODEL in longformer xlnet; do
           --window_len $WINDOW \
           --device cpu \
           --tagset ${LABEL} \
+          --no-joint-coding \
           -o ${RESULTS_NAME}.pkl \
           ${CASE_OPT} \
           ${RECONSTRUCTION_OPT} \
-          /export/c12/pzelasko/daseg/daseg/joint_coding/swda_${LABEL}_${MODEL}_${CASE}/${MODEL}${CKPT} \
+          /export/c12/pzelasko/daseg/daseg/swda_${LABEL}_${MODEL}_${CASE}/${MODEL}${CKPT} \
           &> ${RESULTS_NAME}.txt &
       done
     done

@@ -2,13 +2,11 @@
 
 set -eou pipefail
 
-cd joint_coding
 mkdir -p mrda_results
 
 for LABEL in segmentation basic general full; do
   for CASE in lower nolower; do
-    #for RECONSTRUCTION in default begin_based; do
-    for RECONSTRUCTION in default; do
+    for RECONSTRUCTION in default begin_based; do
       CASE_OPT=
       if [[ $CASE == lower ]]; then CASE_OPT="-p"; fi
       RECONSTRUCTION_OPT=
@@ -22,10 +20,11 @@ for LABEL in segmentation basic general full; do
         --window_len 4096 \
         --device cpu \
         --tagset ${LABEL} \
+        --no-joint-coding \
         -o ${RESULTS_NAME}.pkl \
         ${CASE_OPT} \
         ${RECONSTRUCTION_OPT} \
-        /export/c12/pzelasko/daseg/daseg/joint_coding/mrda_${LABEL}_longformer_${CASE}/longformer \
+        /export/c12/pzelasko/daseg/daseg/mrda_${LABEL}_longformer_${CASE}/longformer \
         &>${RESULTS_NAME}.txt &
     done
     wait
