@@ -125,7 +125,9 @@ def evaluate(
 @cli.command()
 @click.argument('output-dir', type=click.Path())
 @click.option('--dataset-path', default='deps/swda/swda', type=click.Path(exists=True))
-@click.option('--batch-size', default=30, type=int)
+@click.option('-b', '--batch-size', default=30, type=int)
+@click.option('-e', '--epochs', default=10, type=int)
+@click.option('-r', '--random-seed', default=1050, type=int)
 @click.option('-p', '--strip-punctuation-and-lowercase', is_flag=True)
 @click.option('-m', '--merge-continuations', is_flag=True)
 @click.option('-s', '--tagset', default='basic',
@@ -136,6 +138,8 @@ def train_bigru(
         output_dir: str,
         dataset_path: str,
         batch_size: int,
+        epochs: int,
+        random_seed: int,
         strip_punctuation_and_lowercase: bool,
         merge_continuations: bool,
         tagset: str,
@@ -144,7 +148,7 @@ def train_bigru(
 ):
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-    pl.seed_everything(1050)
+    pl.seed_everything(random_seed)
     corpus = DialogActCorpus.from_path(
         dataset_path,
         strip_punctuation_and_lowercase=strip_punctuation_and_lowercase,
@@ -184,7 +188,7 @@ def train_bigru(
             monitor='val_loss',
             mode='min'
         ),
-        max_epochs=10
+        max_epochs=epochs
     )
     trainer.fit(
         model=model,
