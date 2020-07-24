@@ -18,6 +18,7 @@ class ZhaoKawaharaBiGru(pl.LightningModule):
             label_frequencies: Optional[Dict[str, int]] = None,
             word_embed_dim=200,
             gru_dim=100,
+            loss_reduction='mean',
             weight_drop: Optional[float] = None
     ):
         super().__init__()
@@ -45,7 +46,7 @@ class ZhaoKawaharaBiGru(pl.LightningModule):
                 label_frequencies.values()))
 
             )
-        self.loss = nn.CrossEntropyLoss(weight=label_weights, reduction='sum')
+        self.loss = nn.CrossEntropyLoss(weight=label_weights, reduction=loss_reduction)
         self.init_weights()
 
     def init_weights(self):
@@ -100,6 +101,7 @@ class ZhaoKawaharaBiGru(pl.LightningModule):
     def training_epoch_end(self, outputs):
         if self.weight_drop is not None:
             self.utterance_gru.flatten_parameters()
+        return {}
 
     def _common_step(self, batch, batch_idx, prefix):
         word_indices, text_lengths, act_indices = batch
