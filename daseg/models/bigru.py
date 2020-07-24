@@ -97,6 +97,10 @@ class ZhaoKawaharaBiGru(pl.LightningModule):
         loss = self.loss(input=logits, target=act_indices)
         return {'loss': loss}
 
+    def training_epoch_end(self, outputs):
+        if self.weight_drop is not None:
+            self.utterance_gru.flatten_parameters()
+
     def _common_step(self, batch, batch_idx, prefix):
         word_indices, text_lengths, act_indices = batch
         logits = self(word_indices, text_lengths).transpose(1, 2)
