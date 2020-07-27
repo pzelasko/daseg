@@ -31,7 +31,7 @@ def cli():
 @click.option('-m', '--merge-continuations', is_flag=True)
 @click.option('-t', '--window-test', is_flag=True)
 @click.option('-s', '--tagset', default='basic',
-              type=click.Choice(['basic', 'general', 'full', 'custom', 'segmentation']))
+              type=click.Choice(['basic', 'general', 'full', 'broken_swda', 'segmentation']))
 @click.option('-j', '--no-joint-coding', is_flag=True)
 def prepare_data(
         output_dir: str,
@@ -75,7 +75,7 @@ def prepare_data(
 @click.option('-m', '--merge-continuations', is_flag=True)
 @click.option('-r', '--begin-determines-act', is_flag=True)
 @click.option('-s', '--tagset', default='basic',
-              type=click.Choice(['basic', 'general', 'full', 'custom', 'segmentation']))
+              type=click.Choice(['basic', 'general', 'full', 'broken_swda', 'segmentation']))
 @click.option('-d', '--dont-propagate-context', is_flag=True)
 @click.option('-v', '--verbose', is_flag=True)
 @click.option('-j', '--no-joint-coding', is_flag=True)
@@ -113,7 +113,8 @@ def evaluate(
         use_joint_coding=not no_joint_coding
     )
     with SlackNotifier(' '.join(sys.argv)) as slack:
-        for res_grp in ('sklearn_metrics', 'seqeval_metrics', 'zhao_kawahara_metrics'):
+        for res_grp in (
+        'sklearn_metrics', 'seqeval_metrics', 'zhao_kawahara_metrics', 'ORIGINAL_zhao_kawahara_metrics'):
             slack.write_and_print(f'{res_grp.upper()}:')
             for key, val in results[res_grp].items():
                 slack.write_and_print(f'{key}\t{val:.2%}')
@@ -131,7 +132,7 @@ def evaluate(
 @click.option('-p', '--strip-punctuation-and-lowercase', is_flag=True)
 @click.option('-m', '--merge-continuations', is_flag=True)
 @click.option('-s', '--tagset', default='basic',
-              type=click.Choice(['basic', 'general', 'full', 'custom', 'segmentation']))
+              type=click.Choice(['basic', 'general', 'full', 'broken_swda', 'segmentation']))
 @click.option('-g', '--num-gpus', default=0, type=int)
 @click.option('-f', '--frequency-weighted', is_flag=True)
 def train_bigru(

@@ -17,7 +17,6 @@ class SingleTurnDataset(Dataset):
         self.word2idx = word2idx
         self.tag2idx = tag2idx
         self.turns = list(map(Call, self.corpus.turns))
-        x = 1
 
     def __getitem__(self, item):
         turn = self.turns[item]

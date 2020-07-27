@@ -23,7 +23,8 @@ from transformers import (
 from daseg.conversion import predictions_to_dataset
 from daseg.data import DialogActCorpus
 from daseg.dataloaders.transformers import to_transformers_ner_format
-from daseg.metrics import compute_sklearn_metrics, compute_seqeval_metrics, compute_zhao_kawahara_metrics
+from daseg.metrics import compute_sklearn_metrics, compute_seqeval_metrics, compute_zhao_kawahara_metrics, \
+    compute_original_zhao_kawahara_metrics
 from daseg.models.longformer_model import LongformerForTokenClassification
 from daseg.models.reformer_model import ReformerForTokenClassification
 
@@ -149,7 +150,12 @@ class TransformerModel:
         if compute_metrics:
             results.update({
                 "sklearn_metrics": compute_sklearn_metrics(out_label_list, preds_list),
-                "seqeval_metrics": compute_seqeval_metrics(out_label_list, preds_list)
+                "seqeval_metrics": compute_seqeval_metrics(out_label_list, preds_list),
+                # We show the metrics obtained with Zhao-Kawahara code which computes them differently
+                # (apparently the segment insertion errors are not counted)
+                "ORIGINAL_zhao_kawahara_metrics": compute_original_zhao_kawahara_metrics(
+                    true_turns=out_label_list, pred_turns=preds_list
+                )
             })
         if isinstance(dataset, DialogActCorpus):
             results["dataset"] = predictions_to_dataset(

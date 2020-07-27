@@ -4,11 +4,13 @@ from typing import List, Set, Tuple
 
 import pandas as pd
 import seqeval.metrics as seqmetrics
+import sklearn
 import sklearn.metrics as sklmetrics
 from Bio import pairwise2
 from more_itertools import flatten
 
 from daseg import DialogActCorpus, Call
+from daseg.data import CONTINUE_TAG
 
 
 def compute_sklearn_metrics(true_labels: List[List[str]], predictions: List[List[str]]):
@@ -232,3 +234,150 @@ def compute_zhao_kawahara_metrics(true_dataset: DialogActCorpus, pred_dataset: D
         'DER': counts['DER'] / total_segments,
         'JointWER': counts['JointWER'] / total_words
     }
+
+
+"""
+The original Zhao-Kawahara metrics, code adapted to this codebase, is below.
+"""
+
+
+def is_end_tag(da_tag):
+    return da_tag != CONTINUE_TAG
+
+
+def instsance_segmentation_metrics(true_labels, pred_labels):
+    assert len(true_labels) == len(pred_labels)
+    n_ref_units = 0.0
+    n_words = float(len(true_labels))
+    n_words_in_wrong_unit = 0.0
+    n_wrong_units = 0.0
+
+    last_ref_b_index = 0
+    last_pred_b_index = 0
+    this_unit_is_wrong = False
+    for index, ref in enumerate(true_labels):
+        # ref = ref[0]
+        # pred = pred_labels[index][0]
+        pred = pred_labels[index]
+
+        if is_end_tag(ref):  # ref boundaries
+            n_ref_units += 1
+
+            if not is_end_tag(pred) or last_ref_b_index != last_pred_b_index:
+                this_unit_is_wrong = True
+            if this_unit_is_wrong:
+                n_wrong_units += 1
+                n_words_in_wrong_unit += (index - last_ref_b_index)
+                this_unit_is_wrong = False
+            last_ref_b_index = index
+        if is_end_tag(pred):
+            last_pred_b_index = index
+
+    if n_ref_units == 0.0:
+        dser = 1.0
+    else:
+        dser = n_wrong_units / n_ref_units
+    strict_err = n_words_in_wrong_unit / n_words
+
+    return dser, strict_err
+
+
+def instsance_da_metrics(true_labels, pred_labels):
+    n_ref_units = 0.0
+    n_words = float(len(true_labels))
+    n_words_in_wrong_unit_or_da = 0.0
+    n_wrong_units = 0.0
+
+    last_ref_b_index = 0
+    last_pred_b_index = 0
+    this_unit_is_wrong = False
+    for index, ref in enumerate(true_labels):
+        pred = pred_labels[index]
+        # ref_seg = ref[0]
+        # ref_da = ref[2:]
+        # pred_seg = pred[0]
+        # pred_da = pred[2:]
+        ref_seg = ref
+        ref_da = ref
+        pred_seg = pred
+        pred_da = pred
+
+        if is_end_tag(ref_seg):  # ref boundaries
+            n_ref_units += 1
+
+            if not is_end_tag(pred_seg) or last_ref_b_index != last_pred_b_index:
+                this_unit_is_wrong = True
+            elif ref_da != pred_da:
+                this_unit_is_wrong = True
+            if this_unit_is_wrong:
+                n_wrong_units += 1
+                n_words_in_wrong_unit_or_da += (index - last_ref_b_index)
+                this_unit_is_wrong = False
+            last_ref_b_index = index
+        if is_end_tag(pred_seg):
+            last_pred_b_index = index
+
+    if n_ref_units == 0.0:
+        der = 1.0
+    else:
+        der = n_wrong_units / n_ref_units
+    strict_err = n_words_in_wrong_unit_or_da / n_words
+
+    return der, strict_err
+
+
+def segmentation_metrics(true_labels_lst, pred_labels_lst):
+    dser = 0.0
+    strict_err = 0.0
+
+    for i in range(len(true_labels_lst)):
+        tmp_seg_metrics = instsance_segmentation_metrics(true_labels_lst[i], pred_labels_lst[i])
+        dser += tmp_seg_metrics[0]
+        strict_err += tmp_seg_metrics[1]
+
+    dser /= len(true_labels_lst)
+    strict_err /= len(true_labels_lst)
+
+    flatten_true_labels = []
+    flatten_pred_labels = []
+    for l in true_labels_lst:
+        seg_l = [label[0] for label in l]
+        flatten_true_labels += seg_l
+    for l in pred_labels_lst:
+        seg_l = [label[0] for label in l]
+        flatten_pred_labels += seg_l
+    macro_f1 = sklearn.metrics.f1_score(flatten_true_labels, flatten_pred_labels, average="macro")
+    micro_f1 = sklearn.metrics.f1_score(flatten_true_labels, flatten_pred_labels, average="micro")
+
+    return {'DSER': dser, 'SegmentationWER': strict_err, 'macro_f1': macro_f1, 'micro_f1': micro_f1}
+
+
+def da_metrics(true_labels_lst, pred_labels_lst):
+    der = 0.0
+    strict_err = 0.0
+
+    for i in range(len(true_labels_lst)):
+        tmp_da_metrics = instsance_da_metrics(true_labels_lst[i], pred_labels_lst[i])
+        der += tmp_da_metrics[0]
+        strict_err += tmp_da_metrics[1]
+    der /= len(true_labels_lst)
+    strict_err /= len(true_labels_lst)
+
+    flatten_true_labels = []
+    flatten_pred_labels = []
+    for l in true_labels_lst:
+        flatten_true_labels += l
+    for l in pred_labels_lst:
+        flatten_pred_labels += l
+    macro_f1 = sklearn.metrics.f1_score(flatten_true_labels, flatten_pred_labels, average="macro")
+    micro_f1 = sklearn.metrics.f1_score(flatten_true_labels, flatten_pred_labels, average="micro")
+
+    return {'DER': der, 'JointWER': strict_err, 'macro_f1': macro_f1, 'micro_f1': micro_f1}
+
+
+def compute_original_zhao_kawahara_metrics(true_turns: List[List[str]], pred_turns: List[List[str]]) -> dict:
+    all_metrics = da_metrics(true_labels_lst=true_turns, pred_labels_lst=pred_turns)
+    seg_metrics = segmentation_metrics(true_labels_lst=true_turns, pred_labels_lst=pred_turns)
+    all_metrics['DSER'] = seg_metrics['DSER']
+    all_metrics['SegmentationWER'] = seg_metrics['SegmentationWER']
+    return all_metrics
