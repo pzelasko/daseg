@@ -80,8 +80,12 @@ class TransformerModel:
         maybe_tqdm = partial(tqdm, desc='Iterating batches') if verbose else identity
 
         if self.config.model_type == 'xlnet' and propagate_context:
-            self.model.transformer.mem_len = window_len
-            self.model.config.mem_len = window_len
+            if isinstance(self.model, DataParallel):
+                self.model.module.transformer.mem_len = window_len
+                self.model.module.config.mem_len = window_len
+            else:
+                self.model.transformer.mem_len = window_len
+                self.model.config.mem_len = window_len
 
         # TODO: cleanup the dataloader stuff
 
