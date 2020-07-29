@@ -75,7 +75,8 @@ class TransformerModel:
             compute_metrics: bool = True,
             begin_determines_act: bool = False,
             verbose: bool = False,
-            use_joint_coding: bool = False
+            use_joint_coding: bool = True,
+            use_turns: bool = False
     ) -> Dict[str, Any]:
         maybe_tqdm = partial(tqdm, desc='Iterating batches') if verbose else identity
 
@@ -99,7 +100,8 @@ class TransformerModel:
                 batch_size=batch_size,
                 labels=self.config.label2id.keys(),
                 max_seq_length=None,
-                use_joint_coding=use_joint_coding
+                use_joint_coding=use_joint_coding,
+                use_turns=use_turns
             )
         else:
             dataloader = dataset

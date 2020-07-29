@@ -82,6 +82,7 @@ def prepare_data(
 @click.option('-d', '--dont-propagate-context', is_flag=True)
 @click.option('-v', '--verbose', is_flag=True)
 @click.option('-j', '--no-joint-coding', is_flag=True)
+@click.option('-n', '--turns', is_flag=True)
 def evaluate(
         model_path: str,
         dataset_path: str,
@@ -96,7 +97,8 @@ def evaluate(
         tagset: str,
         dont_propagate_context: bool,
         verbose: bool,
-        no_joint_coding: bool
+        no_joint_coding: bool,
+        turns: bool
 ):
     dataset = DialogActCorpus.from_path(
         dataset_path,
@@ -113,7 +115,8 @@ def evaluate(
         propagate_context=not dont_propagate_context,
         begin_determines_act=begin_determines_act,
         verbose=verbose,
-        use_joint_coding=not no_joint_coding
+        use_joint_coding=not no_joint_coding,
+        use_turns=turns
     )
     with SlackNotifier(' '.join(sys.argv)) as slack:
         for res_grp in (
