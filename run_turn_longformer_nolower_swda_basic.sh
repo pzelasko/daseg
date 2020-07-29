@@ -5,7 +5,7 @@ export LD_LIBRARY_PATH=/home/pzelasko/miniconda3/envs/swda/lib/
 if [[ $(hostname -f) == *.clsp.jhu.edu ]]; then
   source /home/pzelasko/miniconda3/bin/activate
   conda activate swda
-  num_gpus=2
+  num_gpus=1
   CUDA_VISIBLE_DEVICES=$(free-gpu -n $num_gpus)
   export CUDA_VISIBLE_DEVICES
 fi
