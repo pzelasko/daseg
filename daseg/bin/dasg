@@ -33,6 +33,7 @@ def cli():
 @click.option('-s', '--tagset', default='basic',
               type=click.Choice(['basic', 'general', 'full', 'broken_swda', 'segmentation']))
 @click.option('-j', '--no-joint-coding', is_flag=True)
+@click.option('-n', '--turns', is_flag=True)
 def prepare_data(
         output_dir: str,
         dataset_path: str,
@@ -43,7 +44,8 @@ def prepare_data(
         merge_continuations: bool,
         window_test: bool,
         tagset: str,
-        no_joint_coding: bool
+        no_joint_coding: bool,
+        turns: bool
 ):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -59,7 +61,8 @@ def prepare_data(
             acts_count_per_sample=window_size if split_name != 'test' or window_test else None,
             acts_count_overlap=window_overlap if split_name != 'test' or window_test else None,
             continuations_allowed=continuations_allowed,
-            use_joint_coding=not no_joint_coding
+            use_joint_coding=not no_joint_coding,
+            use_turns=turns,
         )
 
 

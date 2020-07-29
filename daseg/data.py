@@ -299,7 +299,8 @@ class DialogActCorpus:
             acts_count_per_sample: Optional[int] = None,
             acts_count_overlap: Optional[int] = None,
             continuations_allowed: bool = False,
-            use_joint_coding: bool = False
+            use_joint_coding: bool = True,
+            use_turns: bool = False
     ):
         """
         Write this dataset to a text file used by Transformers NER recipe.
@@ -309,14 +310,17 @@ class DialogActCorpus:
         """
         with open(path, 'w') as f:
             for call in tqdm(self.calls, desc='Calls'):
-                call_windows = prepare_call_windows(
-                    call=call,
-                    acts_count_per_sample=acts_count_per_sample,
-                    acts_count_overlap=acts_count_overlap,
-                )
-                for window in tqdm(call_windows, desc='Windows (if requested)', leave=False):
+                if use_turns:
+                    samples = (turn for speaker, turn in call.turns)
+                else:
+                    samples = prepare_call_windows(
+                        call=call,
+                        acts_count_per_sample=acts_count_per_sample,
+                        acts_count_overlap=acts_count_overlap,
+                    )
+                for sample in tqdm(samples, desc='Windows/turns (if requested)', leave=False):
                     lines = to_transformers_ner_dataset(
-                        window,
+                        sample,
                         continuations_allowed=continuations_allowed,
                         use_joint_coding=use_joint_coding
                     )
@@ -399,9 +403,9 @@ class Call(List['FunctionalSegment']):
         return rendered_htmls
 
     @property
-    def turns(self) -> Iterable[Tuple[str, List['FunctionalSegment']]]:
+    def turns(self) -> Iterable[Tuple[str, 'Call']]:
         for name, group in groupby(self, key=lambda fs: fs.speaker):
-            yield name, list(group)
+            yield name, Call(group)
 
     def dialog_act_spans(self, include_label: bool = True) -> Iterable[Tuple[int, int, str]]:
         idx = 0
