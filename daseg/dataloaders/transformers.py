@@ -59,7 +59,6 @@ def to_dataset(
                 call_parts = [call]
             for call_part in call_parts:
                 words, tags = call_part.words_with_tags(add_turn_token=True, use_joint_coding=use_joint_coding)
-                print(len(words))
                 ner_examples.append(InputExample(guid=idx, words=words, labels=tags))
 
     if max_seq_length is None:
