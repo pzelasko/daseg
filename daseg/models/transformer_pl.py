@@ -44,7 +44,7 @@ class DialogActTransformer(pl.LightningModule):
 
         outputs = self(**inputs)
         loss = outputs[0]
-        tensorboard_logs = {"loss": loss, "rate": self.lr_scheduler.get_last_lr()[-1]}
+        tensorboard_logs = {"loss": loss}
         return {"loss": loss, "log": tensorboard_logs}
 
     def validation_step(self, batch, batch_nb):
