@@ -46,13 +46,13 @@ def predictions_to_dataset(
         original_dataset: DialogActCorpus,
         predictions: List[List[str]],
         begin_determines_act: bool = False,
-        use_joint_coding: bool = False
+        use_joint_coding: bool = True,
 ) -> DialogActCorpus:
     dialogues = {}
     for (call_id, call), pred_tags in zip(original_dataset.dialogues.items(), predictions):
         words, _, speakers = call.words_with_metadata(add_turn_token=True)
         assert len(words) == len(pred_tags), \
-            f'Mismatched words ({len(words)}) and predicted tags ({len(pred_tags)}) counts'
+            f'Mismatched words ({len(words)}) and predicted tags ({len(pred_tags)}) counts for conversation "{call_id}"'
 
         def turns(pairs: Iterable[Tuple[str, str, str]]):
             turn = []

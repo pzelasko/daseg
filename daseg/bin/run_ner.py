@@ -568,10 +568,6 @@ def main():
         torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab
 
     args.model_type = args.model_type.lower()
-    # if args.use_longformer:
-    #     confclass = LongformerConfig
-    # else:
-    #     confclass = AutoConfig
     config = AutoConfig.from_pretrained(
         args.config_name if args.config_name else args.model_name_or_path,
         num_labels=num_labels,
@@ -579,13 +575,6 @@ def main():
         label2id={label: i for i, label in enumerate(labels)},
         cache_dir=args.cache_dir if args.cache_dir else None,
     )
-    # config = LongformerConfig.from_pretrained(
-    #     args.config_name if args.config_name else args.model_name_or_path,
-    #     num_labels=num_labels,
-    #     id2label={str(i): label for i, label in enumerate(labels)},
-    #     label2id={label: i for i, label in enumerate(labels)},
-    #     cache_dir=args.cache_dir if args.cache_dir else None,
-    # )
     tokenizer_args = {k: v for k, v in vars(args).items() if v is not None and k in TOKENIZER_ARGS}
     logger.info("Tokenizer arguments: %s", tokenizer_args)
 

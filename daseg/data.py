@@ -201,7 +201,7 @@ class DialogActCorpus:
         return list(self.dialogues.values())
 
     @property
-    def turns(self) -> Iterable[List['FunctionalSegment']]:
+    def turns(self) -> Iterable['Call']:
         for call in self.dialogues.values():
             yield from (segments for spk, segments in call.turns)
 

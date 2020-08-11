@@ -21,7 +21,7 @@ def dummy_dataset():
 
 @pytest.fixture
 def dummy_model(dummy_dataset):
-    labels = dummy_dataset.dialog_act_labels
+    labels = dummy_dataset.joint_coding_dialog_act_labels
     config = RobertaConfig(num_labels=len(labels))
     config.id2label = {str(i): label for i, label in enumerate(labels)}
     config.label2id = {label: i for i, label in enumerate(labels)}
@@ -49,6 +49,7 @@ def test_dummy_model_runs(dummy_dataset, dummy_model, batch_size, window_len):
         dummy_dataset,
         batch_size=batch_size,
         window_len=window_len,
+        use_joint_coding=True
     )
     assert 'dataset' in results
     assert results['dataset'].calls[0].words() == dummy_dataset.calls[0].words()

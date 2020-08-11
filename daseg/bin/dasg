@@ -11,8 +11,10 @@ from torch.utils.data.dataloader import DataLoader
 
 from daseg import DialogActCorpus, TransformerModel
 from daseg.data import BLANK
+from daseg.dataloaders.transformers import to_transformers_train_dataloader
 from daseg.dataloaders.turns import SingleTurnDataset, padding_collate_fn
 from daseg.models.bigru import ZhaoKawaharaBiGru
+from daseg.models.transformer_pl import DialogActTransformer
 from daseg.slack import SlackNotifier
 
 
@@ -120,13 +122,102 @@ def evaluate(
     )
     with SlackNotifier(' '.join(sys.argv)) as slack:
         for res_grp in (
-        'sklearn_metrics', 'seqeval_metrics', 'zhao_kawahara_metrics', 'ORIGINAL_zhao_kawahara_metrics'):
+                'sklearn_metrics', 'seqeval_metrics', 'zhao_kawahara_metrics', 'ORIGINAL_zhao_kawahara_metrics'):
             slack.write_and_print(f'{res_grp.upper()}:')
             for key, val in results[res_grp].items():
                 slack.write_and_print(f'{key}\t{val:.2%}')
     if save_output is not None:
         with open(save_output, 'wb') as f:
             pickle.dump(results, f)
+
+
+@cli.command()
+@click.argument('output-dir', type=click.Path())
+@click.option('-n', '--model-name-or-path', default='allenai/longformer-base-4096')
+@click.option('--dataset-path', default='deps/swda/swda', type=click.Path(exists=True))
+@click.option('-b', '--batch-size', default=1, type=int)
+@click.option('-e', '--epochs', default=10, type=int)
+@click.option('-a', '--gradient-accumulation-steps', default=1, type=int)
+@click.option('-r', '--random-seed', default=1050, type=int)
+@click.option('-p', '--strip-punctuation-and-lowercase', is_flag=True)
+@click.option('-m', '--merge-continuations', is_flag=True)
+@click.option('-s', '--tagset', default='basic',
+              type=click.Choice(['basic', 'general', 'full', 'broken_swda', 'segmentation']))
+@click.option('-g', '--num-gpus', default=0, type=int)
+@click.option('-l', '--max-sequence-length', default=4096, type=int)
+@click.option('-j', '--no-joint-coding', is_flag=True)
+@click.option('-n', '--turns', is_flag=True)
+def train_transformer(
+        output_dir: str,
+        model_name_or_path: str,
+        dataset_path: str,
+        batch_size: int,
+        epochs: int,
+        gradient_accumulation_steps: int,
+        random_seed: int,
+        strip_punctuation_and_lowercase: bool,
+        merge_continuations: bool,
+        tagset: str,
+        num_gpus: int,
+        max_sequence_length: int,
+        no_joint_coding: bool,
+        use_turns: bool
+):
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    pl.seed_everything(random_seed)
+    corpus = DialogActCorpus.from_path(
+        dataset_path,
+        strip_punctuation_and_lowercase=strip_punctuation_and_lowercase,
+        tagset=tagset,
+        merge_continuations=merge_continuations
+    )
+    model = DialogActTransformer(
+        corpus=corpus,
+        model_name_or_path=model_name_or_path
+    )
+    loaders = {
+        key: to_transformers_train_dataloader(
+            corpus=corpus,
+            tokenizer=model.tokenizer,
+            model_type=model.config.model_type,
+            batch_size=batch_size,
+            labels=model.labels,
+            max_seq_length=max_sequence_length,
+            use_joint_coding=not no_joint_coding,
+            use_turns=use_turns
+        )
+        for key, split_corpus in corpus.train_dev_test_split().items()
+    }
+    model.compute_and_set_total_steps(
+        dataloader=loaders['train'],
+        gradient_accumulation_steps=gradient_accumulation_steps,
+        num_epochs=epochs
+    )
+    trainer = pl.Trainer(
+        gradient_clip_val=1.0,
+        default_root_dir=output_dir,
+        gpus=num_gpus,
+        deterministic=True,
+        checkpoint_callback=ModelCheckpoint(
+            filepath=output_dir,
+            prefix='checkpoint',
+            verbose=True,
+            monitor='val_loss',
+            mode='min',
+            save_top_k=True
+        ),
+        max_epochs=epochs
+    )
+    trainer.fit(
+        model=model,
+        train_dataloader=loaders['train'],
+        val_dataloaders=loaders['dev']
+    )
+    trainer.test(
+        model=model,
+        test_dataloaders=loaders['test']
+    )
 
 
 @cli.command()

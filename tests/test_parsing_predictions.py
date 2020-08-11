@@ -41,7 +41,8 @@ def test_parsing_predictions(dataset, predictions):
     predicted_dataset = predictions_to_dataset(
         original_dataset=dataset,
         predictions=predictions,
-        begin_determines_act=False
+        begin_determines_act=False,
+        use_joint_coding=False
     )
     assert len(predicted_dataset) == 1
     assert predicted_dataset.call_ids == ['call1']
@@ -57,7 +58,8 @@ def test_parsing_predictions_ignore_continuation_label(dataset, predictions):
     predicted_dataset = predictions_to_dataset(
         original_dataset=dataset,
         predictions=predictions,
-        begin_determines_act=True
+        begin_determines_act=True,
+        use_joint_coding=False
     )
     assert len(predicted_dataset) == 1
     assert predicted_dataset.call_ids == ['call1']

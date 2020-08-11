@@ -1,5 +1,6 @@
 import json
 from functools import partial
+from operator import itemgetter
 from pathlib import Path
 from typing import Any, Dict, Optional, List, Tuple, Union
 
@@ -22,7 +23,7 @@ from transformers import (
 
 from daseg.conversion import predictions_to_dataset
 from daseg.data import DialogActCorpus
-from daseg.dataloaders.transformers import to_transformers_ner_format
+from daseg.dataloaders.transformers import to_transformers_eval_dataloader
 from daseg.metrics import compute_sklearn_metrics, compute_seqeval_metrics, compute_zhao_kawahara_metrics, \
     compute_original_zhao_kawahara_metrics
 from daseg.models.longformer_model import LongformerForTokenClassification
@@ -90,15 +91,13 @@ class TransformerModel:
 
         # TODO: cleanup the dataloader stuff
 
-        labels = list(self.config.label2id.keys())
-
         if isinstance(dataset, DialogActCorpus):
-            dataloader = to_transformers_ner_format(
-                dataset=dataset,
+            dataloader = to_transformers_eval_dataloader(
+                corpus=dataset,
                 tokenizer=self.tokenizer,
                 model_type=self.config.model_type,
                 batch_size=batch_size,
-                labels=self.config.label2id.keys(),
+                labels=[label for label, idx in sorted(self.config.label2id.items(), key=itemgetter(1))],
                 max_seq_length=None,
                 use_joint_coding=use_joint_coding,
                 use_turns=use_turns
@@ -131,7 +130,7 @@ class TransformerModel:
             preds = np.argmax(logits, axis=2)
 
         pad_token_label_id = CrossEntropyLoss().ignore_index
-        label_map = {i: label for i, label in enumerate(labels)}
+        label_map = {int(k): v for k, v in self.config.id2label.items()}
 
         out_label_list: List[List[str]] = [[] for _ in range(out_label_ids.shape[0])]
         preds_list: List[List[str]] = [[] for _ in range(out_label_ids.shape[0])]
@@ -164,11 +163,13 @@ class TransformerModel:
                 )
             })
         if isinstance(dataset, DialogActCorpus):
+            if use_turns:
+                dataset = DialogActCorpus(dialogues={str(i): turn for i, turn in enumerate(dataset.turns)})
             results["dataset"] = predictions_to_dataset(
                 dataset,
                 preds_list,
                 begin_determines_act=begin_determines_act,
-                use_joint_coding=use_joint_coding
+                use_joint_coding=use_joint_coding,
             )
             if compute_metrics:
                 results["zhao_kawahara_metrics"] = compute_zhao_kawahara_metrics(
@@ -188,7 +189,6 @@ def predict_batch_in_windows(
         device: str = 'cpu',
         verbose: bool = False
 ):
-    maybe_tqdm = partial(tqdm, desc='Iterating windows') if verbose else identity
     if window_overlap is not None:
         raise ValueError("Overlapping windows processing not implemented.")
     else:
@@ -215,7 +215,7 @@ def predict_batch_in_windows(
 
     mems = None
     with torch.no_grad():
-        for window in maybe_tqdm(windows):
+        for window in windows:
             # Construct the input according to specific Transformer model
             inputs = {"input_ids": window[0], "attention_mask": window[1], "labels": window[3]}
             if config.model_type != "distilbert":
@@ -240,5 +240,3 @@ def predict_batch_in_windows(
             if use_xlnet_memory:
                 mems = outputs[2]
     return ce_loss, crf_loss, np.concatenate(logits, axis=1), batch[3].detach().cpu().numpy()
-
-

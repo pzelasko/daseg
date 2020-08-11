@@ -2,42 +2,31 @@ from typing import Iterable, Optional
 
 import torch
 from torch.nn import CrossEntropyLoss
-from torch.utils.data import DataLoader, TensorDataset, SequentialSampler
+from torch.utils.data import DataLoader, TensorDataset, SequentialSampler, RandomSampler
 from transformers import PreTrainedTokenizer
 
 from daseg import DialogActCorpus
 from daseg.utils_ner import InputExample, convert_examples_to_features
 
 
-def to_transformers_ner_format(
-        dataset: DialogActCorpus,
+def to_dataset(
+        corpus: DialogActCorpus,
         tokenizer: PreTrainedTokenizer,
         model_type: str,
-        batch_size: int,
         labels: Iterable[str],
         max_seq_length: Optional[int] = None,
         use_joint_coding: bool = True,
         use_turns: bool = False
-) -> DataLoader:
-    """
-    Convert the DA dataset into a PyTorch DataLoader for inference.
-    :param tokenizer: Transformers pre-trained tokenizer object
-    :param max_seq_length: The actual sequence length will be min(max_seq_length, <actual sequence lengths>)
-    :param model_type: string describing Transformers model type (e.g. xlnet, xlmroberta, bert, ...)
-    :param batch_size: self-explanatory
-    :param labels: you might run into problems if this is a subset of larger dataset which doesn't cover every label
-        - use this arg to supply the full list of labels
-    :return: PyTorch DataLoader
-    """
+) -> TensorDataset:
     if max_seq_length is None:
         max_seq_length = 99999999999999999
 
     ner_examples = []
-    for idx, call in enumerate(dataset.calls):
+    for idx, call in enumerate(corpus.calls):
         if use_turns:
             for turn_idx, (speaker, turn) in enumerate(call.turns):
                 words, tags = turn.words_with_tags(use_joint_coding=use_joint_coding, add_turn_token=False)
-                ner_examples.append(InputExample(guid=1000 * idx + turn_idx, words=words, labels=labels))
+                ner_examples.append(InputExample(guid=1000 * idx + turn_idx, words=words, labels=tags))
         else:
             words, tags = call.words_with_tags(add_turn_token=True, use_joint_coding=use_joint_coding)
             ner_examples.append(InputExample(guid=idx, words=words, labels=tags))
@@ -82,11 +71,68 @@ def to_transformers_ner_format(
     all_segment_ids = torch.tensor([f.segment_ids for f in ner_features], dtype=torch.long)
     all_label_ids = torch.tensor([f.label_ids for f in ner_features], dtype=torch.long)
     dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
+    return dataset
 
+
+def to_transformers_train_dataloader(
+        corpus: DialogActCorpus,
+        tokenizer: PreTrainedTokenizer,
+        model_type: str,
+        batch_size: int,
+        labels: Iterable[str],
+        max_seq_length: Optional[int] = None,
+        use_joint_coding: bool = True,
+        use_turns: bool = False
+) -> DataLoader:
+    dataset = to_dataset(
+        corpus=corpus,
+        tokenizer=tokenizer,
+        model_type=model_type,
+        labels=labels,
+        max_seq_length=max_seq_length,
+        use_joint_coding=use_joint_coding,
+        use_turns=use_turns
+    )
+    dataloader = DataLoader(
+        dataset=dataset,
+        sampler=RandomSampler(dataset),
+        batch_size=batch_size,
+    )
+    return dataloader
+
+
+def to_transformers_eval_dataloader(
+        corpus: DialogActCorpus,
+        tokenizer: PreTrainedTokenizer,
+        model_type: str,
+        batch_size: int,
+        labels: Iterable[str],
+        max_seq_length: Optional[int] = None,
+        use_joint_coding: bool = True,
+        use_turns: bool = False
+) -> DataLoader:
+    """
+    Convert the DA dataset into a PyTorch DataLoader for inference.
+    :param tokenizer: Transformers pre-trained tokenizer object
+    :param max_seq_length: The actual sequence length will be min(max_seq_length, <actual sequence lengths>)
+    :param model_type: string describing Transformers model type (e.g. xlnet, xlmroberta, bert, ...)
+    :param batch_size: self-explanatory
+    :param labels: you might run into problems if this is a subset of larger dataset which doesn't cover every label
+        - use this arg to supply the full list of labels
+    :return: PyTorch DataLoader
+    """
+    dataset = to_dataset(
+        corpus=corpus,
+        tokenizer=tokenizer,
+        model_type=model_type,
+        labels=labels,
+        max_seq_length=max_seq_length,
+        use_joint_coding=use_joint_coding,
+        use_turns=use_turns
+    )
     dataloader = DataLoader(
         dataset=dataset,
         sampler=SequentialSampler(dataset),
-        batch_size=batch_size
+        batch_size=batch_size,
     )
-
     return dataloader
