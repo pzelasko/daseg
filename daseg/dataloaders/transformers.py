@@ -1,3 +1,5 @@
+import warnings
+from itertools import chain
 from typing import Iterable, Optional
 
 import torch
@@ -5,8 +7,28 @@ from torch.nn import CrossEntropyLoss
 from torch.utils.data import DataLoader, TensorDataset, SequentialSampler, RandomSampler
 from transformers import PreTrainedTokenizer
 
-from daseg import DialogActCorpus
+from daseg import DialogActCorpus, Call
 from daseg.utils_ner import InputExample, convert_examples_to_features
+
+
+def as_windows(call: Call, max_length: int, tokenizer: PreTrainedTokenizer, use_joint_coding: bool) -> Iterable[Call]:
+    if not use_joint_coding:
+        warnings.warn('Call windows are not available when joint coding is turned off. Some calls will be truncated.')
+        return [call]
+    window = []
+    cur_len = 0
+    for segment in call:
+        n_segment_tokens = len(list(chain.from_iterable(tokenizer.tokenize(w) for w in segment.text.split())))
+        cur_len += n_segment_tokens
+        if cur_len > max_length:
+            if not window:
+                raise ValueError("Max sequence length is too low - a segment longer than this value was found.")
+            yield Call(window)
+            window = []
+            cur_len = n_segment_tokens
+        window.append(segment)
+    if window:
+        yield Call(window)
 
 
 def to_dataset(
@@ -15,12 +37,10 @@ def to_dataset(
         model_type: str,
         labels: Iterable[str],
         max_seq_length: Optional[int] = None,
+        windows_if_exceeds_max_length: bool = False,
         use_joint_coding: bool = True,
         use_turns: bool = False
 ) -> TensorDataset:
-    if max_seq_length is None:
-        max_seq_length = 99999999999999999
-
     ner_examples = []
     for idx, call in enumerate(corpus.calls):
         if use_turns:
@@ -28,8 +48,22 @@ def to_dataset(
                 words, tags = turn.words_with_tags(use_joint_coding=use_joint_coding, add_turn_token=False)
                 ner_examples.append(InputExample(guid=1000 * idx + turn_idx, words=words, labels=tags))
         else:
-            words, tags = call.words_with_tags(add_turn_token=True, use_joint_coding=use_joint_coding)
-            ner_examples.append(InputExample(guid=idx, words=words, labels=tags))
+            if max_seq_length is not None and windows_if_exceeds_max_length:
+                call_parts = as_windows(
+                    call=call,
+                    max_length=max_seq_length,
+                    tokenizer=tokenizer,
+                    use_joint_coding=use_joint_coding
+                )
+            else:
+                call_parts = [call]
+            for call_part in call_parts:
+                words, tags = call_part.words_with_tags(add_turn_token=True, use_joint_coding=use_joint_coding)
+                print(len(words))
+                ner_examples.append(InputExample(guid=idx, words=words, labels=tags))
+
+    if max_seq_length is None:
+        max_seq_length = 99999999999999999
 
     # determine max seq length
     max_tok_count = 0
@@ -82,7 +116,8 @@ def to_transformers_train_dataloader(
         labels: Iterable[str],
         max_seq_length: Optional[int] = None,
         use_joint_coding: bool = True,
-        use_turns: bool = False
+        use_turns: bool = False,
+        windows_if_exceeds_max_length: bool = False,
 ) -> DataLoader:
     dataset = to_dataset(
         corpus=corpus,
@@ -91,7 +126,8 @@ def to_transformers_train_dataloader(
         labels=labels,
         max_seq_length=max_seq_length,
         use_joint_coding=use_joint_coding,
-        use_turns=use_turns
+        use_turns=use_turns,
+        windows_if_exceeds_max_length=windows_if_exceeds_max_length
     )
     dataloader = DataLoader(
         dataset=dataset,

@@ -100,7 +100,7 @@ def evaluate(
         dont_propagate_context: bool,
         verbose: bool,
         no_joint_coding: bool,
-        turns: bool
+        turns: bool,
 ):
     dataset = DialogActCorpus.from_path(
         dataset_path,
@@ -147,6 +147,7 @@ def evaluate(
 @click.option('-l', '--max-sequence-length', default=4096, type=int)
 @click.option('-j', '--no-joint-coding', is_flag=True)
 @click.option('-n', '--turns', is_flag=True)
+@click.option('-w', '--windows-if-exceeds-max-len', is_flag=True)
 def train_transformer(
         output_dir: str,
         model_name_or_path: str,
@@ -161,7 +162,8 @@ def train_transformer(
         num_gpus: int,
         max_sequence_length: int,
         no_joint_coding: bool,
-        turns: bool
+        turns: bool,
+        windows_if_exceeds_max_len: bool
 ):
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -185,7 +187,8 @@ def train_transformer(
             labels=model.labels,
             max_seq_length=max_sequence_length,
             use_joint_coding=not no_joint_coding,
-            use_turns=turns
+            use_turns=turns,
+            windows_if_exceeds_max_length=windows_if_exceeds_max_len
         )
         for key, split_corpus in corpus.train_dev_test_split().items()
     }
