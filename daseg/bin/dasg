@@ -161,7 +161,7 @@ def train_transformer(
         num_gpus: int,
         max_sequence_length: int,
         no_joint_coding: bool,
-        use_turns: bool
+        turns: bool
 ):
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -185,7 +185,7 @@ def train_transformer(
             labels=model.labels,
             max_seq_length=max_sequence_length,
             use_joint_coding=not no_joint_coding,
-            use_turns=use_turns
+            use_turns=turns
         )
         for key, split_corpus in corpus.train_dev_test_split().items()
     }
