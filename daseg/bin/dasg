@@ -200,7 +200,7 @@ def prepare_exp(
 @click.option('-n', '--model-name-or-path', default='allenai/longformer-base-4096')
 @click.option('--dataset-path', default='deps/swda/swda', type=click.Path(exists=True))
 @click.option('-b', '--batch-size', default=1, type=int)
-@click.option('-b', '--val-batch-size', default=8, type=int)
+@click.option('-c', '--val-batch-size', default=8, type=int)
 @click.option('-e', '--epochs', default=10, type=int)
 @click.option('-a', '--gradient-accumulation-steps', default=1, type=int)
 @click.option('-r', '--random-seed', default=1050, type=int)
