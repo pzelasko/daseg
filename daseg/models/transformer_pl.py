@@ -17,6 +17,7 @@ from daseg.dataloaders.transformers import pad_array
 class DialogActTransformer(pl.LightningModule):
     def __init__(self, labels: List[str], model_name_or_path: str):
         super().__init__()
+        self.save_hyperparameters()
         self.pad_token_label_id = CrossEntropyLoss().ignore_index
         self.labels = labels
         self.num_labels = len(self.labels)

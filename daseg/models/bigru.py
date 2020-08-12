@@ -22,6 +22,7 @@ class ZhaoKawaharaBiGru(pl.LightningModule):
             weight_drop: Optional[float] = None
     ):
         super().__init__()
+        self.save_hyperparameters()
         self.weight_drop = weight_drop
         self.vocab = vocab
         self.labels = labels
