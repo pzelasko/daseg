@@ -11,7 +11,7 @@ from torch.utils.data.dataloader import DataLoader
 
 from daseg import DialogActCorpus, TransformerModel
 from daseg.data import BLANK
-from daseg.dataloaders.transformers import to_transformers_train_dataloader
+from daseg.dataloaders.transformers import to_transformers_train_dataloader, to_transformers_eval_dataloader
 from daseg.dataloaders.turns import SingleTurnDataset, padding_collate_fn
 from daseg.models.bigru import ZhaoKawaharaBiGru
 from daseg.models.transformer_pl import DialogActTransformer
@@ -136,6 +136,7 @@ def evaluate(
 @click.option('-n', '--model-name-or-path', default='allenai/longformer-base-4096')
 @click.option('--dataset-path', default='deps/swda/swda', type=click.Path(exists=True))
 @click.option('-b', '--batch-size', default=1, type=int)
+@click.option('-b', '--val-batch-size', default=8, type=int)
 @click.option('-e', '--epochs', default=10, type=int)
 @click.option('-a', '--gradient-accumulation-steps', default=1, type=int)
 @click.option('-r', '--random-seed', default=1050, type=int)
@@ -150,10 +151,11 @@ def evaluate(
 @click.option('-w', '--windows-if-exceeds-max-len', is_flag=True)
 @click.option('-f', '--fp16', is_flag=True)
 def train_transformer(
-        output_dir: str,
+        output_dir: Path,
         model_name_or_path: str,
         dataset_path: str,
         batch_size: int,
+        val_batch_size: int,
         epochs: int,
         gradient_accumulation_steps: int,
         random_seed: int,
@@ -191,6 +193,15 @@ def train_transformer(
             use_joint_coding=not no_joint_coding,
             use_turns=turns,
             windows_if_exceeds_max_length=windows_if_exceeds_max_len
+        ) if key == 'train' else to_transformers_eval_dataloader(
+            corpus=corpus,
+            tokenizer=model.tokenizer,
+            model_type=model.config.model_type,
+            batch_size=val_batch_size,
+            labels=model.labels,
+            max_seq_length=max_sequence_length,
+            use_joint_coding=not no_joint_coding,
+            use_turns=turns,
         )
         for key, split_corpus in corpus.train_dev_test_split().items()
     }
@@ -202,11 +213,11 @@ def train_transformer(
     model.set_output_dir(output_dir)
     trainer = pl.Trainer(
         gradient_clip_val=1.0,
-        default_root_dir=output_dir,
+        default_root_dir=str(output_dir),
         gpus=num_gpus,
         deterministic=True,
         checkpoint_callback=ModelCheckpoint(
-            filepath=output_dir,
+            filepath=str(output_dir),
             prefix='checkpoint',
             verbose=True,
             monitor='val_loss',

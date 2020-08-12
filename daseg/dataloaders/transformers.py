@@ -1,6 +1,6 @@
 import warnings
 from itertools import chain
-from typing import Iterable, Optional
+from typing import Iterable, Optional, List
 
 import torch
 from torch.nn import CrossEntropyLoss
@@ -77,6 +77,7 @@ def to_dataset(
     special_tokens_count = 3 if sep_token_extra else 2
     max_tok_count += special_tokens_count
     max_seq_length = min(max_tok_count, max_seq_length)
+    pad_token = tokenizer.convert_tokens_to_ids([tokenizer.pad_token])[0]
 
     # The following lines are basically a copy-paste of Transformer's NER code
     # TODO: It could be modified to create "ragged" batches for faster CPU inference
@@ -94,7 +95,7 @@ def to_dataset(
         # roberta uses an extra separator b/w pairs of sentences, cf. github.com/pytorch/fairseq/commit/1684e166e3da03f5b600dbb7855cb98ddfcd0805
         pad_on_left=bool(model_type in ["xlnet"]),
         # pad on the left for xlnet
-        pad_token=tokenizer.convert_tokens_to_ids([tokenizer.pad_token])[0],
+        pad_token=pad_token,
         pad_token_segment_id=4 if model_type in ["xlnet"] else 0,
         pad_token_label_id=CrossEntropyLoss().ignore_index,
     )
@@ -104,6 +105,7 @@ def to_dataset(
     all_segment_ids = torch.tensor([f.segment_ids for f in ner_features], dtype=torch.long)
     all_label_ids = torch.tensor([f.label_ids for f in ner_features], dtype=torch.long)
     dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
+    dataset.pad_token = pad_token
     return dataset
 
 
@@ -132,6 +134,7 @@ def to_transformers_train_dataloader(
         dataset=dataset,
         sampler=RandomSampler(dataset),
         batch_size=batch_size,
+        collate_fn=truncate_padding_collate_fn
     )
     return dataloader
 
@@ -169,5 +172,12 @@ def to_transformers_eval_dataloader(
         dataset=dataset,
         sampler=SequentialSampler(dataset),
         batch_size=batch_size,
+        collate_fn=truncate_padding_collate_fn
     )
     return dataloader
+
+
+def truncate_padding_collate_fn(batch: List[List[torch.Tensor]]):
+    redundant_padding = max(mask.sum() for _, mask, _, _ in batch)
+    n_tensors = len(batch[0])
+    return [torch.cat([sample[i].unsqueeze(0) for sample in batch])[:, :redundant_padding] for i in range(n_tensors)]
