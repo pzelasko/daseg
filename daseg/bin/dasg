@@ -113,7 +113,11 @@ def evaluate(
         tagset=tagset,
         merge_continuations=merge_continuations
     )
-    model = TransformerModel.from_path(Path(model_path), device=device)
+    try:
+        model = TransformerModel.from_path(Path(model_path), device=device)
+    except:
+        pl_model = DialogActTransformer.load_from_checkpoint(model_path, map_location='cpu')
+        model = TransformerModel(model=pl_model.model, tokenizer=pl_model.tokenizer, device='cpu')
     results = model.predict(
         dataset=dataset,
         batch_size=batch_size,
