@@ -2,17 +2,18 @@
 import pickle
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, List
 
 import click
 import pytorch_lightning as pl
 import torch
 from pytorch_lightning.callbacks import ModelCheckpoint
+from torch.utils.data import Dataset
 from torch.utils.data.dataloader import DataLoader
 
 from daseg import DialogActCorpus, TransformerModel
 from daseg.data import BLANK
-from daseg.dataloaders.transformers import to_transformers_train_dataloader, to_transformers_eval_dataloader
+from daseg.dataloaders.transformers import to_transformers_train_dataloader, to_dataset, to_dataloader
 from daseg.dataloaders.turns import SingleTurnDataset, padding_collate_fn
 from daseg.models.bigru import ZhaoKawaharaBiGru
 from daseg.models.transformer_pl import DialogActTransformer
@@ -143,6 +144,61 @@ def evaluate(
 @click.argument('output-dir', type=click.Path())
 @click.option('-n', '--model-name-or-path', default='allenai/longformer-base-4096')
 @click.option('--dataset-path', default='deps/swda/swda', type=click.Path(exists=True))
+@click.option('-r', '--random-seed', default=1050, type=int)
+@click.option('-p', '--strip-punctuation-and-lowercase', is_flag=True)
+@click.option('-m', '--merge-continuations', is_flag=True)
+@click.option('-s', '--tagset', default='basic',
+              type=click.Choice(['basic', 'general', 'full', 'broken_swda', 'segmentation']))
+@click.option('-l', '--max-sequence-length', default=4096, type=int)
+@click.option('-n', '--turns', is_flag=True)
+@click.option('-w', '--windows-if-exceeds-max-len', is_flag=True)
+def prepare_exp(
+        output_dir: Path,
+        model_name_or_path: str,
+        dataset_path: str,
+        random_seed: int,
+        strip_punctuation_and_lowercase: bool,
+        merge_continuations: bool,
+        tagset: str,
+        max_sequence_length: int,
+        turns: bool,
+        windows_if_exceeds_max_len: bool,
+):
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    pl.seed_everything(random_seed)
+    corpus = DialogActCorpus.from_path(
+        dataset_path,
+        strip_punctuation_and_lowercase=strip_punctuation_and_lowercase,
+        tagset=tagset,
+        merge_continuations=merge_continuations
+    )
+    model = DialogActTransformer(
+        labels=corpus.joint_coding_dialog_act_labels,
+        model_name_or_path=model_name_or_path
+    )
+    dsets = {
+        key: to_dataset(
+            corpus=corpus,
+            tokenizer=model.tokenizer,
+            model_type=model.config.model_type,
+            labels=model.labels,
+            max_seq_length=max_sequence_length,
+            use_turns=turns,
+            windows_if_exceeds_max_length=windows_if_exceeds_max_len
+        )
+        for key, split_corpus in corpus.train_dev_test_split().items()
+    }
+    with open(output_path / 'dataset.pkl', 'wb') as f:
+        pickle.dump(dsets, f)
+    with open(output_path / 'labels.pkl', 'wb') as f:
+        pickle.dump(corpus.joint_coding_dialog_act_labels, f)
+
+
+@cli.command()
+@click.argument('output-dir', type=click.Path())
+@click.option('-n', '--model-name-or-path', default='allenai/longformer-base-4096')
+@click.option('--dataset-path', default='deps/swda/swda', type=click.Path(exists=True))
 @click.option('-b', '--batch-size', default=1, type=int)
 @click.option('-b', '--val-batch-size', default=8, type=int)
 @click.option('-e', '--epochs', default=10, type=int)
@@ -154,7 +210,6 @@ def evaluate(
               type=click.Choice(['basic', 'general', 'full', 'broken_swda', 'segmentation']))
 @click.option('-g', '--num-gpus', default=0, type=int)
 @click.option('-l', '--max-sequence-length', default=4096, type=int)
-@click.option('-j', '--no-joint-coding', is_flag=True)
 @click.option('-n', '--turns', is_flag=True)
 @click.option('-w', '--windows-if-exceeds-max-len', is_flag=True)
 @click.option('-f', '--fp16', is_flag=True)
@@ -172,47 +227,44 @@ def train_transformer(
         tagset: str,
         num_gpus: int,
         max_sequence_length: int,
-        no_joint_coding: bool,
         turns: bool,
         windows_if_exceeds_max_len: bool,
         fp16: bool
 ):
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
     pl.seed_everything(random_seed)
-    corpus = DialogActCorpus.from_path(
-        dataset_path,
-        strip_punctuation_and_lowercase=strip_punctuation_and_lowercase,
-        tagset=tagset,
-        merge_continuations=merge_continuations
-    )
-    model = DialogActTransformer(
-        corpus=corpus,
-        model_name_or_path=model_name_or_path
-    )
-    loaders = {
-        key: to_transformers_train_dataloader(
-            corpus=corpus,
-            tokenizer=model.tokenizer,
-            model_type=model.config.model_type,
-            batch_size=batch_size,
-            labels=model.labels,
-            max_seq_length=max_sequence_length,
-            use_joint_coding=not no_joint_coding,
-            use_turns=turns,
-            windows_if_exceeds_max_length=windows_if_exceeds_max_len
-        ) if key == 'train' else to_transformers_eval_dataloader(
-            corpus=corpus,
-            tokenizer=model.tokenizer,
-            model_type=model.config.model_type,
-            batch_size=val_batch_size,
-            labels=model.labels,
-            max_seq_length=max_sequence_length,
-            use_joint_coding=not no_joint_coding,
-            use_turns=turns,
+    output_path = Path(output_dir)
+    try:
+        with open(output_path / 'dataset.pkl', 'rb') as f:
+            datasets: Dict[str, Dataset] = pickle.load(f)
+        with open(output_path / 'labels.pkl', 'rb') as f:
+            labels: List[str] = pickle.load(f)
+        model = DialogActTransformer(labels=labels, model_name_or_path=model_name_or_path)
+        loaders = {key: to_dataloader(dset, batch_size=batch_size) for key, dset in datasets.items()}
+    except:
+        output_path.mkdir(parents=True, exist_ok=True)
+        corpus = DialogActCorpus.from_path(
+            dataset_path,
+            strip_punctuation_and_lowercase=strip_punctuation_and_lowercase,
+            tagset=tagset,
+            merge_continuations=merge_continuations
         )
-        for key, split_corpus in corpus.train_dev_test_split().items()
-    }
+        model = DialogActTransformer(
+            labels=corpus.joint_coding_dialog_act_labels,
+            model_name_or_path=model_name_or_path
+        )
+        loaders = {
+            key: to_transformers_train_dataloader(
+                corpus=corpus,
+                tokenizer=model.tokenizer,
+                model_type=model.config.model_type,
+                batch_size=batch_size,
+                labels=model.labels,
+                max_seq_length=max_sequence_length,
+                use_turns=turns,
+                windows_if_exceeds_max_length=windows_if_exceeds_max_len
+            )
+            for key, split_corpus in corpus.train_dev_test_split().items()
+        }
     model.compute_and_set_total_steps(
         dataloader=loaders['train'],
         gradient_accumulation_steps=gradient_accumulation_steps,

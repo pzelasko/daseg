@@ -5,7 +5,7 @@ from typing import Iterable, Optional, List
 import numpy as np
 import torch
 from torch.nn import CrossEntropyLoss
-from torch.utils.data import DataLoader, TensorDataset, SequentialSampler, RandomSampler
+from torch.utils.data import DataLoader, TensorDataset, SequentialSampler, RandomSampler, Dataset
 from transformers import PreTrainedTokenizer
 
 from daseg import DialogActCorpus, Call
@@ -110,6 +110,15 @@ def to_dataset(
     return dataset
 
 
+def to_dataloader(dataset: Dataset, batch_size: int, train: bool = True) -> DataLoader:
+    return DataLoader(
+        dataset=dataset,
+        sampler=RandomSampler(dataset) if train else SequentialSampler(dataset),
+        batch_size=batch_size,
+        collate_fn=truncate_padding_collate_fn
+    )
+
+
 def to_transformers_train_dataloader(
         corpus: DialogActCorpus,
         tokenizer: PreTrainedTokenizer,
@@ -131,13 +140,7 @@ def to_transformers_train_dataloader(
         use_turns=use_turns,
         windows_if_exceeds_max_length=windows_if_exceeds_max_length
     )
-    dataloader = DataLoader(
-        dataset=dataset,
-        sampler=RandomSampler(dataset),
-        batch_size=batch_size,
-        collate_fn=truncate_padding_collate_fn
-    )
-    return dataloader
+    return to_dataloader(dataset, batch_size=batch_size, train=True)
 
 
 def to_transformers_eval_dataloader(
@@ -169,13 +172,7 @@ def to_transformers_eval_dataloader(
         use_joint_coding=use_joint_coding,
         use_turns=use_turns
     )
-    dataloader = DataLoader(
-        dataset=dataset,
-        sampler=SequentialSampler(dataset),
-        batch_size=batch_size,
-        collate_fn=truncate_padding_collate_fn
-    )
-    return dataloader
+    return to_dataloader(dataset, batch_size=batch_size, train=False)
 
 
 def truncate_padding_collate_fn(batch: List[List[torch.Tensor]]):
@@ -186,11 +183,12 @@ def truncate_padding_collate_fn(batch: List[List[torch.Tensor]]):
 
 def pad_list_of_arrays(arrays: List[np.ndarray], value: float) -> List[np.ndarray]:
     max_out_len = max(x.shape[1] for x in arrays)
-    return [pad_array(t, target_len=max_out_len, value=float) for t in arrays]
+    return [pad_array(t, target_len=max_out_len, value=value) for t in arrays]
 
 
 def pad_array(arr: np.ndarray, target_len: int, value: float):
-    return np.concatenate([
-        arr,
-        np.ones((arr.shape[0], target_len - arr.shape[1])) * value
-    ], axis=1)
+    if arr.shape[1] == target_len:
+        return arr
+    pad_shape = list(arr.shape)
+    pad_shape[1] = target_len - arr.shape[1]
+    return np.concatenate([arr, np.ones(pad_shape) * value], axis=1)

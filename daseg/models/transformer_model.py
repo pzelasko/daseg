@@ -72,7 +72,6 @@ class TransformerModel:
             window_len: Optional[int] = None,
             window_overlap: Optional[int] = None,
             propagate_context: bool = True,
-            crf_decoding: bool = False,
             compute_metrics: bool = True,
             begin_determines_act: bool = False,
             verbose: bool = False,

@@ -1,6 +1,6 @@
 import warnings
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 import numpy as np
 import pytorch_lightning as pl
@@ -10,16 +10,15 @@ from torch.utils.data.dataloader import DataLoader
 from transformers import AutoConfig, AutoTokenizer, AutoModelForTokenClassification, AdamW, \
     get_linear_schedule_with_warmup
 
-from daseg import DialogActCorpus
 from daseg.data import NEW_TURN
 from daseg.dataloaders.transformers import pad_array
 
 
 class DialogActTransformer(pl.LightningModule):
-    def __init__(self, corpus: DialogActCorpus, model_name_or_path: str):
+    def __init__(self, labels: List[str], model_name_or_path: str):
         super().__init__()
         self.pad_token_label_id = CrossEntropyLoss().ignore_index
-        self.labels = list(corpus.joint_coding_dialog_act_labels)
+        self.labels = labels
         self.num_labels = len(self.labels)
         self.config = AutoConfig.from_pretrained(
             model_name_or_path,
