@@ -70,6 +70,7 @@ class DialogActTransformer(pl.LightningModule):
 
     def _eval_end(self, outputs):
         "Evaluation called for both Val and Test"
+        outputs = pad_outputs(outputs)
         val_loss_mean = torch.stack([x["val_loss"] for x in outputs]).mean()
         preds = np.concatenate([x["pred"] for x in outputs], axis=0)
         preds = np.argmax(preds, axis=2)
@@ -165,3 +166,19 @@ class DialogActTransformer(pl.LightningModule):
         except:
             warnings.warn("on_save_checkpoint: can't store extra artifacts, "
                           "set_output_dir() was not called on the model.")
+
+
+def pad_outputs(outputs: Dict) -> Dict:
+    max_out_len = max(x["pred"].shape[1] for x in outputs)
+
+    def _pad(arr, value):
+        return np.concatenate([
+            arr,
+            np.ones((arr.shape[0], max_out_len - arr.shape[1])) * value
+        ], axis=1)
+
+    for x in outputs:
+        x["pred"] = _pad(x["pred"], value=0)
+        x["target"] = _pad(x["target"], value=CrossEntropyLoss().ignore_index)
+
+    return outputs
