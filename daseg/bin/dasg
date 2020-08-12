@@ -6,6 +6,7 @@ from typing import Optional
 
 import click
 import pytorch_lightning as pl
+import torch
 from pytorch_lightning.callbacks import ModelCheckpoint
 from torch.utils.data.dataloader import DataLoader
 
@@ -16,6 +17,9 @@ from daseg.dataloaders.turns import SingleTurnDataset, padding_collate_fn
 from daseg.models.bigru import ZhaoKawaharaBiGru
 from daseg.models.transformer_pl import DialogActTransformer
 from daseg.slack import SlackNotifier
+
+if torch.cuda.is_available():
+    torch.tensor([0], device='cuda')
 
 
 @click.group()
