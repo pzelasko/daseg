@@ -73,7 +73,7 @@ def prepare_data(
 
 
 @cli.command()
-@click.argument('model_path', type=click.Path(exists=True, file_okay=False))
+@click.argument('model_path', type=click.Path(exists=True))
 @click.option('--dataset-path', default='deps/swda/swda', type=click.Path(exists=True))
 @click.option('--split', type=click.Choice(['train', 'dev', 'test']), default='test')
 @click.option('--batch_size', default=4, type=int)

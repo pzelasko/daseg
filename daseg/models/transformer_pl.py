@@ -12,6 +12,7 @@ from transformers import AutoConfig, AutoTokenizer, AutoModelForTokenClassificat
 
 from daseg import DialogActCorpus
 from daseg.data import NEW_TURN
+from daseg.dataloaders.transformers import pad_array
 
 
 class DialogActTransformer(pl.LightningModule):
@@ -170,15 +171,7 @@ class DialogActTransformer(pl.LightningModule):
 
 def pad_outputs(outputs: Dict) -> Dict:
     max_out_len = max(x["pred"].shape[1] for x in outputs)
-
-    def _pad(arr, value):
-        return np.concatenate([
-            arr,
-            np.ones((arr.shape[0], max_out_len - arr.shape[1])) * value
-        ], axis=1)
-
     for x in outputs:
-        x["pred"] = _pad(x["pred"], value=0)
-        x["target"] = _pad(x["target"], value=CrossEntropyLoss().ignore_index)
-
+        x["pred"] = pad_array(x["pred"], target_len=max_out_len, value=0)
+        x["target"] = pad_array(x["target"], target_len=max_out_len, value=CrossEntropyLoss().ignore_index)
     return outputs

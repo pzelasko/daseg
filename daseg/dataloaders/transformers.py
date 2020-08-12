@@ -2,6 +2,7 @@ import warnings
 from itertools import chain
 from typing import Iterable, Optional, List
 
+import numpy as np
 import torch
 from torch.nn import CrossEntropyLoss
 from torch.utils.data import DataLoader, TensorDataset, SequentialSampler, RandomSampler
@@ -181,3 +182,15 @@ def truncate_padding_collate_fn(batch: List[List[torch.Tensor]]):
     redundant_padding = max(mask.sum() for _, mask, _, _ in batch)
     n_tensors = len(batch[0])
     return [torch.cat([sample[i].unsqueeze(0) for sample in batch])[:, :redundant_padding] for i in range(n_tensors)]
+
+
+def pad_list_of_arrays(arrays: List[np.ndarray], value: float) -> List[np.ndarray]:
+    max_out_len = max(x.shape[1] for x in arrays)
+    return [pad_array(t, target_len=max_out_len, value=float) for t in arrays]
+
+
+def pad_array(arr: np.ndarray, target_len: int, value: float):
+    return np.concatenate([
+        arr,
+        np.ones((arr.shape[0], target_len - arr.shape[1])) * value
+    ], axis=1)

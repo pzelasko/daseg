@@ -23,7 +23,7 @@ from transformers import (
 
 from daseg.conversion import predictions_to_dataset
 from daseg.data import DialogActCorpus
-from daseg.dataloaders.transformers import to_transformers_eval_dataloader
+from daseg.dataloaders.transformers import to_transformers_eval_dataloader, pad_list_of_arrays
 from daseg.metrics import compute_sklearn_metrics, compute_seqeval_metrics, compute_zhao_kawahara_metrics, \
     compute_original_zhao_kawahara_metrics
 from daseg.models.longformer_model import LongformerForTokenClassification
@@ -121,11 +121,13 @@ class TransformerModel:
             ),
         )))
 
+        pad_token_label_id = CrossEntropyLoss().ignore_index
+        out_label_ids = pad_list_of_arrays(out_label_ids, value=pad_token_label_id)
+        logits = pad_list_of_arrays(logits, value=0)
         out_label_ids = np.concatenate(out_label_ids, axis=0)
         logits = np.concatenate(logits, axis=0)
         preds = np.argmax(logits, axis=2)
 
-        pad_token_label_id = CrossEntropyLoss().ignore_index
         label_map = {int(k): v for k, v in self.config.id2label.items()}
 
         out_label_list: List[List[str]] = [[] for _ in range(out_label_ids.shape[0])]
