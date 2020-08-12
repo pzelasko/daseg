@@ -13,7 +13,7 @@ from torch.utils.data.dataloader import DataLoader
 
 from daseg import DialogActCorpus, TransformerModel
 from daseg.data import BLANK
-from daseg.dataloaders.transformers import to_transformers_train_dataloader, to_dataset, to_dataloader
+from daseg.dataloaders.transformers import to_dataset, to_dataloader
 from daseg.dataloaders.turns import SingleTurnDataset, padding_collate_fn
 from daseg.models.bigru import ZhaoKawaharaBiGru
 from daseg.models.transformer_pl import DialogActTransformer
@@ -179,7 +179,7 @@ def prepare_exp(
     )
     dsets = {
         key: to_dataset(
-            corpus=corpus,
+            corpus=split_corpus,
             tokenizer=model.tokenizer,
             model_type=model.config.model_type,
             labels=model.labels,
@@ -253,15 +253,18 @@ def train_transformer(
             model_name_or_path=model_name_or_path
         )
         loaders = {
-            key: to_transformers_train_dataloader(
-                corpus=corpus,
-                tokenizer=model.tokenizer,
-                model_type=model.config.model_type,
-                batch_size=batch_size,
-                labels=model.labels,
-                max_seq_length=max_sequence_length,
-                use_turns=turns,
-                windows_if_exceeds_max_length=windows_if_exceeds_max_len
+            key: to_dataloader(
+                dataset=to_dataset(
+                    corpus=split_corpus,
+                    tokenizer=model.tokenizer,
+                    model_type=model.config.model_type,
+                    labels=model.labels,
+                    max_seq_length=max_sequence_length,
+                    use_turns=turns,
+                    windows_if_exceeds_max_length=windows_if_exceeds_max_len
+                ),
+                batch_size=batch_size if key == 'train' else val_batch_size,
+                train=key == 'train'
             )
             for key, split_corpus in corpus.train_dev_test_split().items()
         }
