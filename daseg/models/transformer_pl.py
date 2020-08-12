@@ -1,3 +1,7 @@
+import warnings
+from pathlib import Path
+from typing import Dict, Any
+
 import numpy as np
 import pytorch_lightning as pl
 import torch
@@ -60,6 +64,9 @@ class DialogActTransformer(pl.LightningModule):
         preds = logits.detach().cpu().numpy()
         out_label_ids = inputs["labels"].detach().cpu().numpy()
         return {"val_loss": tmp_eval_loss.detach().cpu(), "pred": preds, "target": out_label_ids}
+
+    def test_step(self, batch, batch_nb):
+        return self.validation_step(batch, batch_nb)
 
     def _eval_end(self, outputs):
         "Evaluation called for both Val and Test"
@@ -144,3 +151,17 @@ class DialogActTransformer(pl.LightningModule):
         scheduler = self.get_lr_scheduler()
 
         return [optimizer], [scheduler]
+
+    def set_output_dir(self, output_dir: Path):
+        self.output_dir = output_dir
+
+    @pl.utilities.rank_zero_only
+    def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+        try:
+            save_path = self.output_dir / "best_tfmr"
+            self.model.config.save_step = self.step_count
+            self.model.save_pretrained(save_path)
+            self.tokenizer.save_pretrained(save_path)
+        except:
+            warnings.warn("on_save_checkpoint: can't store extra artifacts, "
+                          "set_output_dir() was not called on the model.")

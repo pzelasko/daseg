@@ -18,6 +18,8 @@
 import logging
 import os
 
+from daseg.data import NEW_TURN
+
 logger = logging.getLogger(__name__)
 
 
@@ -100,6 +102,7 @@ def convert_examples_to_features(
     """
 
     label_map = {label: i for i, label in enumerate(label_list)}
+    label_map[NEW_TURN] = pad_token_label_id
 
     features = []
     for (ex_index, example) in enumerate(examples):

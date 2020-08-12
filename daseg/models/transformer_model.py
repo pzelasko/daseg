@@ -105,7 +105,7 @@ class TransformerModel:
         else:
             dataloader = dataset
 
-        eval_ce_losses, eval_crf_losses, logits, out_label_ids = zip(*list(maybe_tqdm(
+        eval_ce_losses, logits, out_label_ids = zip(*list(maybe_tqdm(
             map(
                 partial(
                     predict_batch_in_windows,
@@ -123,11 +123,7 @@ class TransformerModel:
 
         out_label_ids = np.concatenate(out_label_ids, axis=0)
         logits = np.concatenate(logits, axis=0)
-
-        if crf_decoding and hasattr(self.model, 'crf'):
-            preds, lls = zip(*self.model.crf.viterbi_tags(torch.from_numpy(logits)))
-        else:
-            preds = np.argmax(logits, axis=2)
+        preds = np.argmax(logits, axis=2)
 
         pad_token_label_id = CrossEntropyLoss().ignore_index
         label_map = {int(k): v for k, v in self.config.id2label.items()}
@@ -142,12 +138,9 @@ class TransformerModel:
                     preds_list[i].append(label_map[preds[i][j]])
 
         eval_ce_losses = list(flatten(eval_ce_losses))
-        eval_crf_losses = list(flatten(eval_crf_losses))
         results = {
             "losses": np.array(eval_ce_losses),
-            "crf_losses": np.array(eval_crf_losses),
             "loss": np.mean(eval_ce_losses),
-            "crf_loss": np.mean(eval_crf_losses),
             "predictions": preds_list,
             "logits": logits,
             "true_labels": out_label_list,
@@ -187,7 +180,6 @@ def predict_batch_in_windows(
         window_overlap: Optional[int] = None,
         propagate_context: bool = True,
         device: str = 'cpu',
-        verbose: bool = False
 ):
     if window_overlap is not None:
         raise ValueError("Overlapping windows processing not implemented.")
@@ -196,8 +188,6 @@ def predict_batch_in_windows(
 
     use_xlnet_memory = (config.model_type == 'xlnet' and propagate_context
                         and config.mem_len is not None and config.mem_len > 0)
-
-    has_crf = hasattr(model, 'crf') or (isinstance(model, DataParallel) and hasattr(model.module, 'crf'))
 
     batch = tuple(t.to(device) for t in batch)
 
@@ -211,7 +201,7 @@ def predict_batch_in_windows(
             for i in range(0, maxlen, window_shift)
         )
 
-    ce_loss, crf_loss, logits = [], [], []
+    ce_loss, logits = [], []
 
     mems = None
     with torch.no_grad():
@@ -227,16 +217,13 @@ def predict_batch_in_windows(
             # Compute
             outputs = model(**inputs)
             batch_ce_loss = outputs[0]
-            batch_crf_loss = outputs[1] if has_crf else torch.zeros_like(batch_ce_loss)
-            batch_logits = outputs[2] if has_crf else outputs[1]
+            batch_logits = outputs[1]
             # Consume the outputs according to a specific model
             try:
                 ce_loss.extend(batch_ce_loss.detach().cpu().numpy())
-                crf_loss.extend(batch_crf_loss.detach().cpu().numpy())
             except:
                 ce_loss.append(batch_ce_loss.detach().cpu().numpy())
-                crf_loss.append(batch_crf_loss.detach().cpu().numpy())
             logits.append(batch_logits.detach().cpu().numpy())
             if use_xlnet_memory:
                 mems = outputs[2]
-    return ce_loss, crf_loss, np.concatenate(logits, axis=1), batch[3].detach().cpu().numpy()
+    return ce_loss, np.concatenate(logits, axis=1), batch[3].detach().cpu().numpy()
