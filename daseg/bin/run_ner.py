@@ -155,7 +155,7 @@ def train(args, train_dataset, model, tokenizer, labels, pad_token_label_id):
         logger.info("  Continuing training from global step %d", global_step)
         logger.info("  Will skip the first %d steps in the first epoch", steps_trained_in_current_epoch)
 
-    tr_loss, tr_ce_loss, tr_crf_loss, logging_loss, logging_ce_loss, logging_crf_loss = [0.0] * 6
+    tr_loss, logging_loss = [0.0] * 2
     model.zero_grad()
     train_iterator = trange(
         epochs_trained, int(args.num_train_epochs), desc="Epoch", disable=args.local_rank not in [-1, 0]
@@ -179,17 +179,12 @@ def train(args, train_dataset, model, tokenizer, labels, pad_token_label_id):
                 )  # XLM and RoBERTa don"t use segment_ids
 
             outputs = model(**inputs)
-            ce_loss = outputs[0]  # model outputs are always tuple in pytorch-transformers (see doc)
-            crf_loss = outputs[1] if hasattr(model, 'crf') else torch.zeros_like(ce_loss).to(args.device)
+            loss = outputs[0]  # model outputs are always tuple in pytorch-transformers (see doc)
 
             if args.n_gpu > 1:
-                ce_loss = ce_loss.mean()  # mean() to average on multi-gpu parallel training
-                crf_loss = crf_loss.mean()
+                loss = loss.mean()  # mean() to average on multi-gpu parallel training
             if args.gradient_accumulation_steps > 1:
-                ce_loss = ce_loss / args.gradient_accumulation_steps
-                crf_loss = crf_loss / args.gradient_accumulation_steps
-
-            loss = args.ce_loss_weight * ce_loss + args.crf_loss_weight * crf_loss
+                loss = loss / args.gradient_accumulation_steps
 
             if args.fp16:
                 with amp.scale_loss(loss, optimizer) as scaled_loss:
@@ -198,8 +193,6 @@ def train(args, train_dataset, model, tokenizer, labels, pad_token_label_id):
                 loss.backward()
 
             tr_loss += loss.item()
-            tr_ce_loss += ce_loss.item()
-            tr_crf_loss += crf_loss.item()
             if (step + 1) % args.gradient_accumulation_steps == 0:
                 if args.fp16:
                     torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), args.max_grad_norm)
@@ -225,11 +218,7 @@ def train(args, train_dataset, model, tokenizer, labels, pad_token_label_id):
                         tb_writer.add_scalar("lr", scheduler.get_lr()[0], global_step)
                         tb_writer.add_scalar("loss", (tr_loss - logging_loss) / args.logging_steps, global_step)
                         slack.write(f'loss = {(tr_loss - logging_loss) / args.logging_steps}')
-                        tb_writer.add_scalar("ce_loss", (ce_loss - logging_ce_loss) / args.logging_steps, global_step)
-                        tb_writer.add_scalar("crf_loss", (ce_loss - logging_crf_loss) / args.logging_steps, global_step)
                         logging_loss = tr_loss
-                        logging_ce_loss = tr_ce_loss
-                        logging_crf_loss = tr_crf_loss
 
                 if args.local_rank in [-1, 0] and args.save_steps > 0 and global_step % args.save_steps == 0:
                     # Save model checkpoint
@@ -284,7 +273,6 @@ def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""
         dataset=eval_dataloader,
         batch_size=args.eval_batch_size,
         window_len=args.eval_window_size,
-        crf_decoding=args.use_crf
     )
 
     flat_results = {
@@ -489,23 +477,13 @@ def main():
     parser.add_argument("--server_ip", type=str, default="", help="For distant debugging.")
     parser.add_argument("--server_port", type=str, default="", help="For distant debugging.")
 
-    parser.add_argument("--use_crf", action='store_true', help="Will add a CRF layer on top Transformer.")
-    parser.add_argument('--ce_loss_weight', default=1.0, type=float, help='Weight of CE (per-token) loss for training')
-    parser.add_argument('--crf_loss_weight', default=1.0, type=float,
-                        help='Weight of CRF (whole sequence) loss for training')
     parser.add_argument("--eval_window_size", default=None,
                         help="When non-zero, will use windows inside batches for evaluation.")
-    parser.add_argument("--crf_over_windows", action='store_true',
-                        help="When specified, CRF will be performed over all windows predictions instead of "
-                             "over each window individually (works only with nonzero --eval_window_size).")
     parser.add_argument('--use_longformer', action='store_true', help='Use the Longformer model (override others)')
     parser.add_argument('--use_reformer', action='store_true', help='Use the Reformer model')
     parser.add_argument('--random_init', action='store_true', help='Do not use any pretrained weights')
 
     args = parser.parse_args()
-
-    if args.crf_over_windows:
-        raise NotImplementedError()
 
     if (
             os.path.exists(args.output_dir)
@@ -592,8 +570,6 @@ def main():
         torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab
 
     model.to(args.device)
-    if hasattr(model, 'crf'):
-        model.crf.to(args.device)
 
     logger.info("Training/evaluation parameters %s", args)
 
@@ -677,13 +653,9 @@ def main():
 
 
 def load_model(args, config, path: Optional[str] = None):
-    if args.use_longformer and args.use_crf: raise NotImplementedError()
-
     model_class = (
-        # LongformerCRFForTokenClassification if (args.use_longformer and args.use_crf)
         ReformerForTokenClassification if args.use_reformer
         else LongformerForTokenClassification if args.use_longformer
-        else XLNetCRFForTokenClassification if args.use_crf
         else AutoModelForTokenClassification
     )
     if path is not None:
