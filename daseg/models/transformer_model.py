@@ -48,8 +48,8 @@ class TransformerModel:
             tokenizer = tok_cls.from_pretrained(
                 str(model_path),
                 **json.load(open(Path(model_path) / 'tokenizer_config.json'))
-            ),
-            model = model_cls.from_pretrained(str(model_path)),
+            )
+            model = model_cls.from_pretrained(str(model_path))
         return TransformerModel(
             tokenizer=tokenizer,
             model=model,
