@@ -196,91 +196,50 @@ def prepare_exp(
 
 
 @cli.command()
-@click.argument('output-dir', type=click.Path())
+@click.argument('exp-dir', type=click.Path())
 @click.option('-n', '--model-name-or-path', default='allenai/longformer-base-4096')
-@click.option('--dataset-path', default='deps/swda/swda', type=click.Path(exists=True))
 @click.option('-b', '--batch-size', default=1, type=int)
 @click.option('-c', '--val-batch-size', default=8, type=int)
 @click.option('-e', '--epochs', default=10, type=int)
 @click.option('-a', '--gradient-accumulation-steps', default=1, type=int)
 @click.option('-r', '--random-seed', default=1050, type=int)
-@click.option('-p', '--strip-punctuation-and-lowercase', is_flag=True)
-@click.option('-m', '--merge-continuations', is_flag=True)
-@click.option('-s', '--tagset', default='basic',
-              type=click.Choice(['basic', 'general', 'full', 'broken_swda', 'segmentation']))
 @click.option('-g', '--num-gpus', default=0, type=int)
-@click.option('-l', '--max-sequence-length', default=4096, type=int)
-@click.option('-n', '--turns', is_flag=True)
-@click.option('-w', '--windows-if-exceeds-max-len', is_flag=True)
 @click.option('-f', '--fp16', is_flag=True)
 def train_transformer(
-        output_dir: Path,
+        exp_dir: Path,
         model_name_or_path: str,
-        dataset_path: str,
         batch_size: int,
         val_batch_size: int,
         epochs: int,
         gradient_accumulation_steps: int,
         random_seed: int,
-        strip_punctuation_and_lowercase: bool,
-        merge_continuations: bool,
-        tagset: str,
         num_gpus: int,
-        max_sequence_length: int,
-        turns: bool,
-        windows_if_exceeds_max_len: bool,
         fp16: bool
 ):
     pl.seed_everything(random_seed)
-    output_path = Path(output_dir)
-    try:
-        with open(output_path / 'dataset.pkl', 'rb') as f:
-            datasets: Dict[str, Dataset] = pickle.load(f)
-        with open(output_path / 'labels.pkl', 'rb') as f:
-            labels: List[str] = pickle.load(f)
-        model = DialogActTransformer(labels=labels, model_name_or_path=model_name_or_path)
-        loaders = {key: to_dataloader(dset, batch_size=batch_size) for key, dset in datasets.items()}
-    except:
-        output_path.mkdir(parents=True, exist_ok=True)
-        corpus = DialogActCorpus.from_path(
-            dataset_path,
-            strip_punctuation_and_lowercase=strip_punctuation_and_lowercase,
-            tagset=tagset,
-            merge_continuations=merge_continuations
-        )
-        model = DialogActTransformer(
-            labels=corpus.joint_coding_dialog_act_labels,
-            model_name_or_path=model_name_or_path
-        )
-        loaders = {
-            key: to_dataloader(
-                dataset=to_dataset(
-                    corpus=split_corpus,
-                    tokenizer=model.tokenizer,
-                    model_type=model.config.model_type,
-                    labels=model.labels,
-                    max_seq_length=max_sequence_length,
-                    use_turns=turns,
-                    windows_if_exceeds_max_length=windows_if_exceeds_max_len
-                ),
-                batch_size=batch_size if key == 'train' else val_batch_size,
-                train=key == 'train'
-            )
-            for key, split_corpus in corpus.train_dev_test_split().items()
-        }
+    output_path = Path(exp_dir)
+    with open(output_path / 'dataset.pkl', 'rb') as f:
+        datasets: Dict[str, Dataset] = pickle.load(f)
+    with open(output_path / 'labels.pkl', 'rb') as f:
+        labels: List[str] = pickle.load(f)
+    model = DialogActTransformer(labels=labels, model_name_or_path=model_name_or_path)
+    loaders = {
+        key: to_dataloader(dset, batch_size=batch_size if key == 'train' else val_batch_size)
+        for key, dset in datasets.items()
+    }
     model.compute_and_set_total_steps(
         dataloader=loaders['train'],
         gradient_accumulation_steps=gradient_accumulation_steps,
         num_epochs=epochs
     )
-    model.set_output_dir(output_dir)
+    model.set_output_dir(exp_dir)
     trainer = pl.Trainer(
         gradient_clip_val=1.0,
-        default_root_dir=str(output_dir),
+        default_root_dir=str(exp_dir),
         gpus=num_gpus,
         deterministic=True,
         checkpoint_callback=ModelCheckpoint(
-            filepath=str(output_dir),
+            filepath=str(exp_dir),
             prefix='checkpoint',
             verbose=True,
             monitor='val_loss',
