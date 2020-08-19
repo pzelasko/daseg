@@ -114,7 +114,6 @@ class TransformerModel:
                     window_overlap=window_overlap,
                     propagate_context=propagate_context,
                     device=self.device,
-                    verbose=verbose
                 ),
                 dataloader
             ),
