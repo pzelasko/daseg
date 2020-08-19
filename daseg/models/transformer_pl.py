@@ -12,6 +12,7 @@ from transformers import AutoConfig, AutoTokenizer, AutoModelForTokenClassificat
 
 from daseg.data import NEW_TURN
 from daseg.dataloaders.transformers import pad_array
+from daseg.metrics import as_tensors, compute_sklearn_metrics
 
 
 class DialogActTransformer(pl.LightningModule):
@@ -87,14 +88,10 @@ class DialogActTransformer(pl.LightningModule):
                     out_label_list[i].append(label_map[out_label_ids[i][j]])
                     preds_list[i].append(label_map[preds[i][j]])
 
-        from seqeval.metrics import precision_score
-        from seqeval.metrics import recall_score
-        from seqeval.metrics import f1_score
+        sklearn_metrics = as_tensors(compute_sklearn_metrics(out_label_list, preds_list, compute_common_I=False))
         results = {
             "val_loss": val_loss_mean,
-            "precision": precision_score(out_label_list, preds_list),
-            "recall": recall_score(out_label_list, preds_list),
-            "f1": f1_score(out_label_list, preds_list),
+            **sklearn_metrics
         }
 
         ret = {k: v for k, v in results.items()}

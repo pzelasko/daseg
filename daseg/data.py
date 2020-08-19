@@ -502,6 +502,10 @@ class FunctionalSegment(NamedTuple):
     start: Optional[float] = None
     end: Optional[float] = None
 
+    @property
+    def num_words(self) -> int:
+        return len(self.text.split())
+
     def words_with_metadata(self) -> Iterable[Tuple[str, Optional[str], str]]:
         for word in self.text.split():
             yield word, self.dialog_act, self.speaker

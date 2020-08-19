@@ -16,9 +16,7 @@ from tqdm.auto import tqdm
 from transformers import (
     AutoTokenizer,
     AutoModelForTokenClassification,
-    PreTrainedTokenizer,
-    LongformerTokenizer,
-    ReformerTokenizer
+    PreTrainedTokenizer
 )
 
 from daseg.conversion import predictions_to_dataset
@@ -26,31 +24,26 @@ from daseg.data import DialogActCorpus
 from daseg.dataloaders.transformers import to_transformers_eval_dataloader, pad_list_of_arrays
 from daseg.metrics import compute_sklearn_metrics, compute_seqeval_metrics, compute_zhao_kawahara_metrics, \
     compute_original_zhao_kawahara_metrics
-from daseg.models.longformer_model import LongformerForTokenClassification
-from daseg.models.reformer_model import ReformerForTokenClassification
+from daseg.models.transformer_pl import DialogActTransformer
 
 __all__ = ['TransformerModel']
 
 
 class TransformerModel:
     @staticmethod
-    def from_path(model_dir: Path, device: str = 'cpu', is_longformer: bool = False):
-        # HACK: workaround for LongformerForTokenClassification not registered in AutoModel*
-        if 'longformer' in str(model_dir) or is_longformer:
-            model_cls = LongformerForTokenClassification
-            tok_cls = LongformerTokenizer
-        elif 'reformer' in str(model_dir):
-            model_cls = ReformerForTokenClassification
-            tok_cls = ReformerTokenizer
-        else:
-            model_cls = AutoModelForTokenClassification
-            tok_cls = AutoTokenizer
-        return TransformerModel(
-            tokenizer=tok_cls.from_pretrained(
-                str(model_dir),
-                **json.load(open(Path(model_dir) / 'tokenizer_config.json'))
+    def from_path(model_path: Path, device: str = 'cpu'):
+        try:
+            pl_model = DialogActTransformer.load_from_checkpoint(str(model_path), map_location=device)
+            model, tokenizer = pl_model.model, pl_model.tokenizer
+        except:
+            tokenizer = AutoTokenizer.from_pretrained(
+                str(model_path),
+                **json.load(open(Path(model_path) / 'tokenizer_config.json'))
             ),
-            model=model_cls.from_pretrained(str(model_dir)),
+            model = AutoModelForTokenClassification.from_pretrained(str(model_path)),
+        return TransformerModel(
+            tokenizer=tokenizer,
+            model=model,
             device=device
         )
 

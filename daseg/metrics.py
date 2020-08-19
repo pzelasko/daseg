@@ -1,11 +1,12 @@
 from collections import defaultdict
 from itertools import chain
-from typing import List, Set, Tuple
+from typing import List, Set, Tuple, Dict
 
 import pandas as pd
 import seqeval.metrics as seqmetrics
 import sklearn
 import sklearn.metrics as sklmetrics
+import torch
 from Bio import pairwise2
 from more_itertools import flatten
 
@@ -13,26 +14,27 @@ from daseg import DialogActCorpus, Call
 from daseg.data import CONTINUE_TAG
 
 
-def compute_sklearn_metrics(true_labels: List[List[str]], predictions: List[List[str]]):
+def as_tensors(metrics: Dict[str, float]) -> Dict[str, torch.Tensor]:
+    return {k: torch.as_tensor(v) for k, v in metrics.items()}
+
+
+def compute_sklearn_metrics(true_labels: List[List[str]], predictions: List[List[str]], compute_common_I: bool = True):
     fp = list(flatten(predictions))
     fl = list(flatten(true_labels))
-
-    I_labels = set(l for l in chain(fp, fl) if l.startswith('I-'))
-    mapping = {ilab: 'I' for ilab in I_labels}
-
-    fp_common_I = [mapping.get(l, l) for l in fp]
-    fl_common_I = [mapping.get(l, l) for l in fl]
-    return {
-        "micro_precision": sklmetrics.precision_score(fl, fp, average='micro'),
-        "micro_recall": sklmetrics.recall_score(fl, fp, average='micro'),
+    results = {
         "micro_f1": sklmetrics.f1_score(fl, fp, average='micro'),
-        "macro_precision": sklmetrics.precision_score(fl, fp, average='macro'),
-        "macro_recall": sklmetrics.recall_score(fl, fp, average='macro'),
         "macro_f1": sklmetrics.f1_score(fl, fp, average='macro'),
-        "accuracy": sklmetrics.accuracy_score(fl, fp),
-        "micro_f1_common_I": sklmetrics.f1_score(fl_common_I, fp_common_I, average='micro'),
-        "macro_f1_common_I": sklmetrics.f1_score(fl_common_I, fp_common_I, average='macro'),
     }
+    if compute_common_I:
+        I_labels = set(l for l in chain(fp, fl) if l.startswith('I-'))
+        mapping = {ilab: 'I' for ilab in I_labels}
+        fp_common_I = [mapping.get(l, l) for l in fp]
+        fl_common_I = [mapping.get(l, l) for l in fl]
+        results.update({
+            "micro_f1_common_I": sklmetrics.f1_score(fl_common_I, fp_common_I, average='micro'),
+            "macro_f1_common_I": sklmetrics.f1_score(fl_common_I, fp_common_I, average='macro'),
+        })
+    return results
 
 
 def compute_seqeval_metrics(true_labels: List[List[str]], predictions: List[List[str]]):
