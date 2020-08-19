@@ -1,3 +1,4 @@
+import traceback
 import warnings
 from pathlib import Path
 from typing import Dict, Any, List
@@ -159,6 +160,7 @@ class DialogActTransformer(pl.LightningModule):
         try:
             save_path = self.output_dir / "best_tfmr"
         except:
+            traceback.print_exc()
             warnings.warn("on_save_checkpoint: can't store extra artifacts, "
                           "set_output_dir() was not called on the model.")
         else:
