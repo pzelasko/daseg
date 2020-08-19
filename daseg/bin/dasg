@@ -346,7 +346,9 @@ def train_bigru(
             dataset=SingleTurnDataset(split_corpus, word2idx=word2idx, tag2idx=tag2idx),
             batch_size=batch_size,
             shuffle=key == 'train',
-            collate_fn=padding_collate_fn
+            collate_fn=padding_collate_fn,
+            num_workers=4,
+            pin_memory=True
         )
         for key, split_corpus in corpus.train_dev_test_split().items()
     }
