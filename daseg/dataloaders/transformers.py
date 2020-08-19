@@ -114,7 +114,6 @@ def to_dataloader(dataset: Dataset, batch_size: int, train: bool = True) -> Data
     return DataLoader(
         dataset=dataset,
         sampler=RandomSampler(dataset) if train else SequentialSampler(dataset),
-        shuffle=train,
         batch_size=batch_size,
         collate_fn=truncate_padding_collate_fn,
         pin_memory=True,
