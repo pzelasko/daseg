@@ -1,6 +1,6 @@
 import shutil
+import subprocess
 from pathlib import Path
-from subprocess import run
 from tempfile import NamedTemporaryFile
 
 use_grid = True
@@ -45,6 +45,10 @@ gacc = {
 }
 
 
+def run(cmd: str):
+    subprocess.run(cmd, shell=True, text=True)
+
+
 def submit(cmd: str, work_dir: str = WORK_DIR, num_gpus: int = 1):
     if use_grid:
         with NamedTemporaryFile('w+') as f:
@@ -64,7 +68,7 @@ def submit(cmd: str, work_dir: str = WORK_DIR, num_gpus: int = 1):
             )
             print(qsub)
             print(script, end='\n\n')
-            run(qsub, text=True, shell=True)
+            run(qsub)
     else:
         run(cmd)
     if pause:
