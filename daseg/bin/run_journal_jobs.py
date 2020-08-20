@@ -111,7 +111,10 @@ for corpus in ('swda', 'mrda'):
             # Transformers
             for model in ('longformer', 'xlnet'):
                 for context in ('turn', 'dialog'):
-                    shutil.copytree(outdir(use_seed=False), outdir(use_seed=True))
+                    try:
+                        shutil.copytree(outdir(use_seed=False), outdir(use_seed=True))
+                    except FileExistsError:
+                        pass
                 # Transformers turn-level baseline
                 context = 'turn'
                 submit(f"dasg train-transformer {opts[model]} -b 30 -c 30 -e 10 "
