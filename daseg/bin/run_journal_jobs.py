@@ -12,10 +12,9 @@ args = parser.parse_args()
 
 SCRIPT_TEMPLATE = """#!/usr/bin/env bash
 
-conda activate swda
 export CUDA_VISIBLE_DEVICES=$(free-gpu -n {num_gpus})
 cd {work_dir}
-{cmd}
+/home/pzelasko/miniconda3/envs/swda/bin/python {cmd}
 """
 
 QSUB_TEMPLATE = "qsub -l \"hostname=c*,gpu={num_gpus} -q {queue} -e {logerr} -o {logout} bash {script}"
