@@ -14,6 +14,7 @@ parser.add_argument('--longformer', type=bool, default=True)
 parser.add_argument('--xlnet', type=bool, default=True)
 parser.add_argument('--train', type=bool, default=True)
 parser.add_argument('--evaluate', type=bool, default=True)
+parser.add_argument('--dry-run', type=bool, default=False)
 args = parser.parse_args()
 
 SCRIPT_TEMPLATE = """#!/usr/bin/env bash
@@ -56,7 +57,10 @@ gacc = {
 
 
 def run(cmd: str):
-    subprocess.run(cmd, shell=True, text=True)
+    if args.dry_run:
+        print(cmd)
+    else:
+        subprocess.run(cmd, shell=True, text=True)
 
 
 def submit(cmd: str, work_dir: str = WORK_DIR, num_gpus: int = 1):
@@ -77,9 +81,11 @@ def submit(cmd: str, work_dir: str = WORK_DIR, num_gpus: int = 1):
                 queue='g.q' if num_gpus else 'all.q',
                 name=(cmd.split()[0] + '-' + Path(cmd.split()[-1]).stem).replace(' ', '-')
             )
-            print(qsub)
-            print(script, end='\n\n')
-            run(qsub)
+            if args.dry_run:
+                print(qsub)
+                print(script, end='\n\n')
+            else:
+                run(qsub)
     else:
         run(cmd)
     if args.pause:
