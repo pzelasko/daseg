@@ -5,16 +5,26 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from time import sleep
 
+def str2bool(v):
+    if isinstance(v, bool):
+       return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+
 parser = argparse.ArgumentParser()
-parser.add_argument('--use-grid', type=bool, default=True)
-parser.add_argument('--pause', type=bool, default=False)
-parser.add_argument('--skip-data-prep', type=bool, default=False)
-parser.add_argument('--bigru', type=bool, default=True)
-parser.add_argument('--longformer', type=bool, default=True)
-parser.add_argument('--xlnet', type=bool, default=True)
-parser.add_argument('--train', type=bool, default=True)
-parser.add_argument('--evaluate', type=bool, default=True)
-parser.add_argument('--dry-run', type=bool, default=False)
+parser.add_argument('--use-grid', type=str2bool, default=True)
+parser.add_argument('--pause', type=str2bool, default=False)
+parser.add_argument('--skip-data-prep', type=str2bool, default=False)
+parser.add_argument('--bigru', type=str2bool, default=True)
+parser.add_argument('--longformer', type=str2bool, default=True)
+parser.add_argument('--xlnet', type=str2bool, default=True)
+parser.add_argument('--train', type=str2bool, default=True)
+parser.add_argument('--evaluate', type=str2bool, default=True)
+parser.add_argument('--dry-run', type=str2bool, default=False)
 args = parser.parse_args()
 
 SCRIPT_TEMPLATE = """#!/usr/bin/env bash
@@ -154,3 +164,4 @@ for corpus in ('swda', 'mrda'):
                     if model == 'xlnet':
                         submit(f'dasg evaluate {opts[corpus]} -l {seqlen[model]} --split test -b 1 --device cpu '
                                f'-o {outdir(use_seed=True)}/results_noprop.pkl {opts[case]} -s {tagset} -d', num_gpus=0)
+

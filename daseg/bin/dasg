@@ -235,7 +235,7 @@ def train_transformer(
             filepath=str(exp_dir),
             prefix='checkpoint',
             verbose=True,
-            monitor='f1',
+            monitor='macro_f1',
             mode='min',
             save_top_k=True
         ),
