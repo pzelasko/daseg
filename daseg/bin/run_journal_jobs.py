@@ -90,7 +90,7 @@ def submit(cmd: str, work_dir: str = WORK_DIR, num_gpus: int = 1):
         run(cmd)
     if args.pause:
         input()
-    else:
+    elif not args.dry_run:
         sleep(15)
 
 
