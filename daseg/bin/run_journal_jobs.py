@@ -80,7 +80,7 @@ def submit(cmd: str, work_dir: str = WORK_DIR, num_gpus: int = 1):
     if args.pause:
         input()
     else:
-        sleep(3)
+        sleep(15)
 
 
 Path(EXP_DIR).mkdir(parents=True, exist_ok=True)
