@@ -77,8 +77,8 @@ def prepare_data(
 @click.argument('model_path', type=click.Path(exists=True))
 @click.option('--dataset-path', default='deps/swda/swda', type=click.Path(exists=True))
 @click.option('--split', type=click.Choice(['train', 'dev', 'test']), default='test')
-@click.option('--batch_size', default=4, type=int)
-@click.option('--window_len', default=None, type=int)
+@click.option('-b', '--batch_size', default=4, type=int)
+@click.option('-l', '--window_len', default=None, type=int)
 @click.option('--device', default='cpu', type=str)
 @click.option('-o', '--save-output', default=None, type=click.Path())
 @click.option('-p', '--strip-punctuation-and-lowercase', is_flag=True)
@@ -266,6 +266,7 @@ def train_transformer(
               type=click.Choice(['basic', 'general', 'full', 'broken_swda', 'segmentation']))
 @click.option('-g', '--num-gpus', default=0, type=int)
 @click.option('-f', '--frequency-weighted', is_flag=True)
+@click.option('-o', '--save-output', default=None, type=click.Path())
 def train_bigru(
         output_dir: str,
         dataset_path: str,
@@ -276,7 +277,8 @@ def train_bigru(
         merge_continuations: bool,
         tagset: str,
         num_gpus: int,
-        frequency_weighted: bool
+        frequency_weighted: bool,
+        save_output: str
 ):
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -333,6 +335,7 @@ def train_bigru(
         model=model,
         test_dataloaders=loaders['test']
     )
+    model.save_results(Path(save_output))
 
 
 if __name__ == '__main__':

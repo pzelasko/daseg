@@ -12,6 +12,8 @@ parser.add_argument('--skip-data-prep', type=bool, default=False)
 parser.add_argument('--bigru', type=bool, default=True)
 parser.add_argument('--longformer', type=bool, default=True)
 parser.add_argument('--xlnet', type=bool, default=True)
+parser.add_argument('--train', type=bool, default=True)
+parser.add_argument('--evaluate', type=bool, default=True)
 args = parser.parse_args()
 
 SCRIPT_TEMPLATE = """#!/usr/bin/env bash
@@ -104,11 +106,11 @@ for corpus in ('swda', 'mrda'):
         if not args.skip_data_prep:
             for model in MODELS:
                 # Transformers dialog-level baseline data-prep
-                context = 'turn'
+                context = 'dialog'
                 run(f'dasg prepare-exp {opts[model]} {opts[corpus]} '
                     f'{opts[case]} -s {tagset} -l {seqlen[model]} -w {outdir(use_seed=False)}')
                 # Transformers turn-level baseline data-prep
-                context = 'dialog'
+                context = 'turn'
                 run(f'dasg prepare-exp {opts[model]} {opts[corpus]} '
                     f'{opts[case]} -s {tagset} --turns {outdir(use_seed=False)}')
         # Model training
@@ -127,8 +129,19 @@ for corpus in ('swda', 'mrda'):
                         pass
                 # Transformers turn-level baseline
                 context = 'turn'
-                submit(f"dasg train-transformer {opts[model]} -b 30 -c 30 -e 10 "
-                       f"-a 1 -r {seed} -g 1 {outdir()}")
+                if args.train:
+                    submit(f"dasg train-transformer {opts[model]} -b 30 -c 30 -e 10 "
+                           f"-a 1 -r {seed} -g 1 {outdir()}")
+                if args.evaluate:
+                    submit(f'dasg evaluate {opts[corpus]} --split test -b 8 --device cpu '
+                           f'-o {outdir(use_seed=True)}/results.pkl {opts[case]} -s {tagset} --turns', num_gpus=0)
                 context = 'dialog'
-                submit(f"dasg train-transformer {opts[model]} -b {bsize[model]} -c 8 -e 10 "
-                       f"-a {gacc[model]} -r {seed} -g 1 {outdir()}")
+                if args.train:
+                    submit(f"dasg train-transformer {opts[model]} -b {bsize[model]} -c 8 -e 10 "
+                           f"-a {gacc[model]} -r {seed} -g 1 {outdir()}")
+                if args.evaluate:
+                    submit(f'dasg evaluate {opts[corpus]} -l {seqlen[model]} --split test -b 1 --device cpu '
+                           f'-o {outdir(use_seed=True)}/results.pkl {opts[case]} -s {tagset}', num_gpus=0)
+                    if model == 'xlnet':
+                        submit(f'dasg evaluate {opts[corpus]} -l {seqlen[model]} --split test -b 1 --device cpu '
+                               f'-o {outdir(use_seed=True)}/results_noprop.pkl {opts[case]} -s {tagset} -d', num_gpus=0)

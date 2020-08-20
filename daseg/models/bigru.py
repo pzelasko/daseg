@@ -1,3 +1,5 @@
+import pickle
+from pathlib import Path
 from typing import Dict, Optional
 
 import pytorch_lightning as pl
@@ -144,7 +146,12 @@ class ZhaoKawaharaBiGru(pl.LightningModule):
         return self._common_step(batch, batch_idx, prefix='test')
 
     def test_epoch_end(self, outputs):
-        return self._common_epoch_end(outputs)
+        self.results = self._common_epoch_end(outputs)
+        return self.results
+
+    def save_results(self, path: Path):
+        with open(path, 'wb') as f:
+            pickle.dump(self.results['progress_bar'], f)
 
     def configure_optimizers(self):
         optim = torch.optim.AdamW(self.parameters(), lr=0.001, weight_decay=0.0001)
