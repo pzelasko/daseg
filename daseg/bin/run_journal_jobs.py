@@ -9,6 +9,9 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--use-grid', type=bool, default=True)
 parser.add_argument('--pause', type=bool, default=False)
 parser.add_argument('--skip-data-prep', type=bool, default=False)
+parser.add_argument('--bigru', type=bool, default=True)
+parser.add_argument('--longformer', type=bool, default=True)
+parser.add_argument('--xlnet', type=bool, default=True)
 args = parser.parse_args()
 
 SCRIPT_TEMPLATE = """#!/usr/bin/env bash
@@ -92,12 +95,14 @@ def outdir(use_seed=True):
     return f'{EXP_DIR}/{model}_{corpus}_{context}_{case}_{tagset}'
 
 
+MODELS = (['longformer'] if args.longformer else []) + (['xlnet'] if args.xlnet else [])
+
 tagset = 'basic'
 for corpus in ('swda', 'mrda'):
     for case in ('lower', 'nolower'):
         # Data preparation
         if not args.skip_data_prep:
-            for model in ('longformer', 'xlnet'):
+            for model in MODELS:
                 # Transformers dialog-level baseline data-prep
                 context = 'turn'
                 run(f'dasg prepare-exp {opts[model]} {opts[corpus]} '
@@ -109,11 +114,12 @@ for corpus in ('swda', 'mrda'):
         # Model training
         for seed in SEEDS:
             # BiGRU turn-level baseline
-            model = 'bigru'
-            context = 'turn'
-            submit(f'dasg train-bigru -s {tagset} -b 30 -e 10 -r {seed} {opts[corpus]} {opts[case]} {outdir()}')
+            if args.bigru:
+                model = 'bigru'
+                context = 'turn'
+                submit(f'dasg train-bigru -s {tagset} -b 30 -e 10 -r {seed} {opts[corpus]} {opts[case]} {outdir()}')
             # Transformers
-            for model in ('longformer', 'xlnet'):
+            for model in MODELS:
                 for context in ('turn', 'dialog'):
                     try:
                         shutil.copytree(outdir(use_seed=False), outdir(use_seed=True))
