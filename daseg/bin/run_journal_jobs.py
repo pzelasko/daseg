@@ -1,10 +1,14 @@
+import argparse
 import shutil
 import subprocess
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-use_grid = True
-pause = True
+parser = argparse.ArgumentParser()
+parser.add_argument('--use-grid', type=bool, default=True)
+parser.add_argument('--pause', type=bool, default=False)
+parser.add_argument('--skip-data-prep', type=bool, default=False)
+args = parser.parse_args()
 
 SCRIPT_TEMPLATE = """#!/usr/bin/env bash
 
@@ -14,7 +18,7 @@ cd {work_dir}
 {cmd}
 """
 
-QSUB_TEMPLATE = "qsub -l \"hostname=c*,gpu={num_gpus} -q {queue} -e {logerr} -o {logout} {script}"
+QSUB_TEMPLATE = "qsub -l \"hostname=c*,gpu={num_gpus} -q {queue} -e {logerr} -o {logout} bash {script}"
 
 WORK_DIR = '/export/c12/pzelasko/daseg/daseg'
 EXP_DIR = str(Path(WORK_DIR) / 'journal')
@@ -50,7 +54,7 @@ def run(cmd: str):
 
 
 def submit(cmd: str, work_dir: str = WORK_DIR, num_gpus: int = 1):
-    if use_grid:
+    if args.use_grid:
         with NamedTemporaryFile('w+') as f:
             script = SCRIPT_TEMPLATE.format(
                 num_gpus=num_gpus,
@@ -71,7 +75,7 @@ def submit(cmd: str, work_dir: str = WORK_DIR, num_gpus: int = 1):
             run(qsub)
     else:
         run(cmd)
-    if pause:
+    if args.pause:
         input()
 
 
@@ -88,15 +92,16 @@ tagset = 'basic'
 for corpus in ('swda', 'mrda'):
     for case in ('lower', 'nolower'):
         # Data preparation
-        for model in ('longformer', 'xlnet'):
-            # Transformers dialog-level baseline data-prep
-            context = 'turn'
-            run(f'dasg prepare-exp {opts[model]} {opts[corpus]} '
-                f'{opts[case]} -s {tagset} -l {seqlen[model]} -w {outdir(use_seed=False)}')
-            # Transformers turn-level baseline data-prep
-            context = 'dialog'
-            run(f'dasg prepare-exp {opts[model]} {opts[corpus]} '
-                f'{opts[case]} -s {tagset} --turns {outdir(use_seed=False)}')
+        if not args.skip_data_prep:
+            for model in ('longformer', 'xlnet'):
+                # Transformers dialog-level baseline data-prep
+                context = 'turn'
+                run(f'dasg prepare-exp {opts[model]} {opts[corpus]} '
+                    f'{opts[case]} -s {tagset} -l {seqlen[model]} -w {outdir(use_seed=False)}')
+                # Transformers turn-level baseline data-prep
+                context = 'dialog'
+                run(f'dasg prepare-exp {opts[model]} {opts[corpus]} '
+                    f'{opts[case]} -s {tagset} --turns {outdir(use_seed=False)}')
         # Model training
         for seed in SEEDS:
             # BiGRU turn-level baseline
