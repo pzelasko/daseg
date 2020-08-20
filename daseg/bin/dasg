@@ -266,7 +266,6 @@ def train_transformer(
               type=click.Choice(['basic', 'general', 'full', 'broken_swda', 'segmentation']))
 @click.option('-g', '--num-gpus', default=0, type=int)
 @click.option('-f', '--frequency-weighted', is_flag=True)
-@click.option('-o', '--save-output', default=None, type=click.Path())
 def train_bigru(
         output_dir: str,
         dataset_path: str,
@@ -278,7 +277,6 @@ def train_bigru(
         tagset: str,
         num_gpus: int,
         frequency_weighted: bool,
-        save_output: str
 ):
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -335,7 +333,7 @@ def train_bigru(
         model=model,
         test_dataloaders=loaders['test']
     )
-    model.save_results(Path(save_output))
+    model.save_results(output_path / 'results.txt')
 
 
 if __name__ == '__main__':

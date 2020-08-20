@@ -23,7 +23,7 @@ parser.add_argument('--bigru', type=str2bool, default=True)
 parser.add_argument('--longformer', type=str2bool, default=True)
 parser.add_argument('--xlnet', type=str2bool, default=True)
 parser.add_argument('--train', type=str2bool, default=True)
-parser.add_argument('--evaluate', type=str2bool, default=True)
+parser.add_argument('--evaluate', type=str2bool, default=False)
 parser.add_argument('--dry-run', type=str2bool, default=False)
 args = parser.parse_args()
 
@@ -108,10 +108,15 @@ if not args.dry_run:
     Path(EXP_DIR).mkdir(parents=True, exist_ok=True)
 
 
-def outdir(use_seed=True):
-    if use_seed:
-        return f'{EXP_DIR}/{model}_{corpus}_{context}_{case}_{tagset}_{seed}'
-    return f'{EXP_DIR}/{model}_{corpus}_{context}_{case}_{tagset}'
+def outdir(use_seed=True, mkdir=True):
+    def inner():
+        if use_seed:
+            return f'{EXP_DIR}/{model}_{corpus}_{context}_{case}_{tagset}_{seed}'
+        return f'{EXP_DIR}/{model}_{corpus}_{context}_{case}_{tagset}'
+    path = inner()
+    if mkdir:
+        Path(path).mkdir(exist_ok=True, parents=True)
+    return path
 
 
 MODELS = (['longformer'] if args.longformer else []) + (['xlnet'] if args.xlnet else [])
@@ -136,13 +141,13 @@ for corpus in ('swda', 'mrda'):
             if args.bigru:
                 model = 'bigru'
                 context = 'turn'
-                submit(f'dasg train-bigru -s {tagset} -b 30 -e 10 -r {seed} {opts[corpus]} {opts[case]} {outdir()}')
+                submit(f'dasg train-bigru -g 1 -s {tagset} -b 30 -e 10 -r {seed} {opts[corpus]} {opts[case]} {outdir()}')
             # Transformers
             for model in MODELS:
                 for context in ('turn', 'dialog'):
                     if not args.dry_run:
                         try:
-                            shutil.copytree(outdir(use_seed=False), outdir(use_seed=True))
+                            shutil.copytree(outdir(use_seed=False), outdir(use_seed=True, mkdir=False))
                         except FileExistsError:
                             pass
                 # Transformers turn-level baseline
