@@ -70,7 +70,7 @@ def submit(cmd: str, work_dir: str = WORK_DIR, num_gpus: int = 1):
                 logerr=f'{outdir()}/stderr.txt',
                 logout=f'{outdir()}/stdout.txt',
                 queue='g.q' if num_gpus else 'all.q',
-                name=(cmd.split()[0] + ':' + Path(cmd.split()[-1]).stem).replace(' ', '-')
+                name=(cmd.split()[0] + '-' + Path(cmd.split()[-1]).stem).replace(' ', '-')
             )
             print(qsub)
             print(script, end='\n\n')
