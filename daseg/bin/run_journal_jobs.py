@@ -3,6 +3,7 @@ import shutil
 import subprocess
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from time import sleep
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--use-grid', type=bool, default=True)
@@ -18,7 +19,7 @@ cd {work_dir}
 {cmd}
 """
 
-QSUB_TEMPLATE = "qsub -l \"hostname=c*,gpu={num_gpus}\" -q {queue} -e {logerr} -o {logout} {script}"
+QSUB_TEMPLATE = "qsub -l \"hostname=c*,gpu={num_gpus}\" -q {queue} -e {logerr} -o {logout} -N {name} {script}"
 
 WORK_DIR = '/export/c12/pzelasko/daseg/daseg'
 EXP_DIR = str(Path(WORK_DIR) / 'journal')
@@ -68,7 +69,8 @@ def submit(cmd: str, work_dir: str = WORK_DIR, num_gpus: int = 1):
                 script=f.name,
                 logerr=f'{outdir()}/stderr.txt',
                 logout=f'{outdir()}/stdout.txt',
-                queue='g.q' if num_gpus else 'all.q'
+                queue='g.q' if num_gpus else 'all.q',
+                name=cmd.split()[0] + ' ' + cmd.split()[-1]
             )
             print(qsub)
             print(script, end='\n\n')
@@ -77,6 +79,8 @@ def submit(cmd: str, work_dir: str = WORK_DIR, num_gpus: int = 1):
         run(cmd)
     if args.pause:
         input()
+    else:
+        sleep(3)
 
 
 Path(EXP_DIR).mkdir(parents=True, exist_ok=True)
