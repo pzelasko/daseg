@@ -144,6 +144,7 @@ for corpus in ('swda', 'mrda'):
                     submit(f'dasg evaluate {opts[corpus]} --split test -b 8 --device cpu '
                            f'-o {outdir(use_seed=True)}/results.pkl {opts[case]} -s {tagset} --turns', num_gpus=0)
                 context = 'dialog'
+                # Transformers dialog-level
                 if args.train:
                     submit(f"dasg train-transformer {opts[model]} -b {bsize[model]} -c 8 -e 10 "
                            f"-a {gacc[model]} -r {seed} -g 1 {outdir()}")
