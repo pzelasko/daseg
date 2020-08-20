@@ -21,7 +21,7 @@ EXP_DIR = str(Path(WORK_DIR) / 'journal')
 SEEDS = (42, 43, 44)
 
 opts = {
-    'longformer': '--model-name-or-path allenai/longformer-base',
+    'longformer': '--model-name-or-path allenai/longformer-base-4096',
     'xlnet': '--model-name-or-path xlnet-base-cased',
     'lower': '-p',
     'nolower': '',
