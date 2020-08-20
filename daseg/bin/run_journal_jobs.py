@@ -94,7 +94,8 @@ def submit(cmd: str, work_dir: str = WORK_DIR, num_gpus: int = 1):
         sleep(15)
 
 
-Path(EXP_DIR).mkdir(parents=True, exist_ok=True)
+if not args.dry_run:
+    Path(EXP_DIR).mkdir(parents=True, exist_ok=True)
 
 
 def outdir(use_seed=True):
@@ -129,10 +130,11 @@ for corpus in ('swda', 'mrda'):
             # Transformers
             for model in MODELS:
                 for context in ('turn', 'dialog'):
-                    try:
-                        shutil.copytree(outdir(use_seed=False), outdir(use_seed=True))
-                    except FileExistsError:
-                        pass
+                    if not args.dry_run:
+                        try:
+                            shutil.copytree(outdir(use_seed=False), outdir(use_seed=True))
+                        except FileExistsError:
+                            pass
                 # Transformers turn-level baseline
                 context = 'turn'
                 if args.train:
