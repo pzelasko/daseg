@@ -236,7 +236,7 @@ def train_transformer(
             prefix='checkpoint',
             verbose=True,
             monitor='macro_f1',
-            mode='min',
+            mode='max',
             save_top_k=True
         ),
         max_epochs=epochs,
@@ -319,8 +319,8 @@ def train_bigru(
         checkpoint_callback=ModelCheckpoint(
             filepath=output_dir,
             verbose=True,
-            monitor='val_loss',
-            mode='min'
+            monitor='macro_f1',
+            mode='max'
         ),
         max_epochs=epochs
     )
@@ -333,7 +333,7 @@ def train_bigru(
         model=model,
         test_dataloaders=loaders['test']
     )
-    model.save_results(output_path / 'results.txt')
+    model.save_results(output_path / 'results.pkl')
 
 
 if __name__ == '__main__':

@@ -153,7 +153,7 @@ for corpus in ('swda', 'mrda'):
                 # Transformers turn-level baseline
                 context = 'turn'
                 if args.train:
-                    submit(f"dasg train-transformer {opts[model]} -b 30 -c 30 -e 10 "
+                    submit(f"dasg train-transformer {opts[model]} -b 16 -c 16 -e 10 "
                            f"-a 1 -r {seed} -g 1 {outdir()}")
                 if args.evaluate:
                     submit(f'dasg evaluate {opts[corpus]} --split test -b 8 --device cpu '
