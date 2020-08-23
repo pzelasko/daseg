@@ -153,20 +153,20 @@ class DialogActTransformer(pl.LightningModule):
         return [optimizer], [scheduler]
 
     def set_output_dir(self, output_dir: Path):
-        self.output_dir = output_dir
+        self.output_dir = Path(output_dir)
 
-    @pl.utilities.rank_zero_only
-    def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
-        try:
-            save_path = self.output_dir / "best_tfmr"
-        except:
-            traceback.print_exc()
-            warnings.warn("on_save_checkpoint: can't store extra artifacts, "
-                          "set_output_dir() was not called on the model.")
-        else:
-            self.model.config.save_step = self.step_count
-            self.model.save_pretrained(save_path)
-            self.tokenizer.save_pretrained(save_path)
+    #@pl.utilities.rank_zero_only
+    #def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+    #    try:
+    #        save_path = self.output_dir / "best_tfmr"
+    #    except:
+    #        traceback.print_exc()
+    #        warnings.warn("on_save_checkpoint: can't store extra artifacts, "
+    #                      "set_output_dir() was not called on the model.")
+    #    else:
+    #        self.model.config.save_step = self.step_count
+    #        self.model.save_pretrained(save_path)
+    #        self.tokenizer.save_pretrained(save_path)
 
 
 def pad_outputs(outputs: Dict) -> Dict:

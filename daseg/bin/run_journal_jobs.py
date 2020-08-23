@@ -134,7 +134,7 @@ for corpus in ('swda', 'mrda'):
                 # Transformers turn-level baseline data-prep
                 context = 'turn'
                 run(f'dasg prepare-exp {opts[model]} {opts[corpus]} '
-                    f'{opts[case]} -s {tagset} --turns {outdir(use_seed=False)}')
+                    f'{opts[case]} -s {tagset} --turns -l 128 {outdir(use_seed=False)}')
         # Model training
         for seed in SEEDS:
             # BiGRU turn-level baseline
@@ -153,7 +153,7 @@ for corpus in ('swda', 'mrda'):
                 # Transformers turn-level baseline
                 context = 'turn'
                 if args.train:
-                    submit(f"dasg train-transformer {opts[model]} -b 16 -c 16 -e 10 "
+                    submit(f"dasg train-transformer {opts[model]} -b 8 -c 8 -e 10 "
                            f"-a 1 -r {seed} -g 1 {outdir()}")
                 if args.evaluate:
                     submit(f'dasg evaluate {opts[corpus]} --split test -b 8 --device cpu '
