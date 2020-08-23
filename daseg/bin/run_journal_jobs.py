@@ -2,7 +2,6 @@ import argparse
 import shutil
 import subprocess
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 from time import sleep
 
 def str2bool(v):
@@ -75,27 +74,29 @@ def run(cmd: str):
 
 def submit(cmd: str, name: str, work_dir: str = WORK_DIR, num_gpus: int = 1):
     if args.use_grid:
-        with NamedTemporaryFile('w+') as f:
+        script_path = f'{outdir()}/run_task_{name}.sh'
+        with open(script_path, 'w') as f:
             script = SCRIPT_TEMPLATE.format(
                 num_gpus=num_gpus,
                 work_dir=work_dir,
                 cmd=cmd
             )
-            f.write(script)
-            f.flush()
-            qsub = QSUB_TEMPLATE.format(
-                num_gpus=num_gpus,
-                script=f.name,
-                logerr=f'{outdir()}/stderr_{name}.txt',
-                logout=f'{outdir()}/stdout_{name}.txt',
-                queue='g.q' if num_gpus else 'all.q',
-                name=(cmd.split()[0] + '-' + Path(cmd.split()[-1]).stem).replace(' ', '-')
-            )
-            if args.dry_run:
-                print(qsub)
-                print(script, end='\n\n')
-            else:
-                run(qsub)
+            print(script, file=f)
+        qsub = QSUB_TEMPLATE.format(
+            num_gpus=num_gpus,
+            script=script_path,
+            logerr=f'{outdir()}/stderr_{name}.txt',
+            logout=f'{outdir()}/stdout_{name}.txt',
+            queue='g.q' if num_gpus else 'all.q',
+            name=(cmd.split()[0] + '-' + Path(cmd.split()[-1]).stem).replace(' ', '-')
+        )
+        with open(f'{outdir()}/qsub_{name}.sh', 'w') as f:
+            print(f'#!/usr/bin/env bash\n{qsub}', file=f)
+        if args.dry_run:
+            print(qsub)
+            print(script, end='\n\n')
+        else:
+            run(qsub)
     else:
         run(cmd)
     if args.pause:
