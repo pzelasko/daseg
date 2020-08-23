@@ -73,7 +73,7 @@ def run(cmd: str):
         subprocess.run(cmd, shell=True, text=True)
 
 
-def submit(cmd: str, work_dir: str = WORK_DIR, num_gpus: int = 1):
+def submit(cmd: str, name: str, work_dir: str = WORK_DIR, num_gpus: int = 1):
     if args.use_grid:
         with NamedTemporaryFile('w+') as f:
             script = SCRIPT_TEMPLATE.format(
@@ -86,8 +86,8 @@ def submit(cmd: str, work_dir: str = WORK_DIR, num_gpus: int = 1):
             qsub = QSUB_TEMPLATE.format(
                 num_gpus=num_gpus,
                 script=f.name,
-                logerr=f'{outdir()}/stderr.txt',
-                logout=f'{outdir()}/stdout.txt',
+                logerr=f'{outdir()}/stderr_{name}.txt',
+                logout=f'{outdir()}/stdout_{name}.txt',
                 queue='g.q' if num_gpus else 'all.q',
                 name=(cmd.split()[0] + '-' + Path(cmd.split()[-1]).stem).replace(' ', '-')
             )
@@ -141,7 +141,9 @@ for corpus in ('swda', 'mrda'):
             if args.bigru:
                 model = 'bigru'
                 context = 'turn'
-                submit(f'dasg train-bigru -g 1 -s {tagset} -b 30 -e 10 -r {seed} {opts[corpus]} {opts[case]} {outdir()}')
+                submit(
+                    f'dasg train-bigru -g 1 -s {tagset} -b 30 -e 10 -r {seed} {opts[corpus]} {opts[case]} {outdir()}',
+                    name='train')
             # Transformers
             for model in MODELS:
                 for context in ('turn', 'dialog'):
@@ -154,19 +156,20 @@ for corpus in ('swda', 'mrda'):
                 context = 'turn'
                 if args.train:
                     submit(f"dasg train-transformer {opts[model]} -b 8 -c 8 -e 10 "
-                           f"-a 1 -r {seed} -g 1 {outdir()}")
+                           f"-a 1 -r {seed} -g 1 {outdir()}", name='train')
                 if args.evaluate:
                     submit(f'dasg evaluate {opts[corpus]} --split test -b 8 --device cpu '
-                           f'-o {outdir(use_seed=True)}/results.pkl {opts[case]} -s {tagset} --turns', num_gpus=0)
+                           f'-o {outdir(use_seed=True)}/results.pkl {opts[case]} -s {tagset} --turns', num_gpus=0,
+                           name='test')
                 context = 'dialog'
                 # Transformers dialog-level
                 if args.train:
                     submit(f"dasg train-transformer {opts[model]} -b {bsize[model]} -c 8 -e 10 "
-                           f"-a {gacc[model]} -r {seed} -g 1 {outdir()}")
+                           f"-a {gacc[model]} -r {seed} -g 1 {outdir()}", name='train')
                 if args.evaluate:
                     submit(f'dasg evaluate {opts[corpus]} -l {seqlen[model]} --split test -b 1 --device cpu '
-                           f'-o {outdir(use_seed=True)}/results.pkl {opts[case]} -s {tagset}', num_gpus=0)
+                           f'-o {outdir(use_seed=True)}/results.pkl {opts[case]} -s {tagset}', num_gpus=0, name='test')
                     if model == 'xlnet':
                         submit(f'dasg evaluate {opts[corpus]} -l {seqlen[model]} --split test -b 1 --device cpu '
-                               f'-o {outdir(use_seed=True)}/results_noprop.pkl {opts[case]} -s {tagset} -d', num_gpus=0)
-
+                               f'-o {outdir(use_seed=True)}/results_noprop.pkl {opts[case]} -s {tagset} -d', num_gpus=0,
+                               name='test_noprop')
