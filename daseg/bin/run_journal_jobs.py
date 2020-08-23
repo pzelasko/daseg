@@ -158,20 +158,26 @@ for corpus in ('swda', 'mrda'):
                     submit(f"dasg train-transformer {opts[model]} -b 8 -c 8 -e 10 "
                            f"-a 1 -r {seed} -g 1 {outdir()}", name='train')
                 if args.evaluate:
-                    ckpt = list(Path(outdir()).glob('checkpoint*.ckpt'))[0]
-                    submit(f'dasg evaluate {opts[corpus]} --split test -b 8 --device cpu '
-                           f'-o {outdir()}/results.pkl {opts[case]} -s {tagset} --turns {ckpt}', num_gpus=0,
-                           name='test')
+                    ckpts = list(Path(outdir()).glob('checkpoint*.ckpt'))
+                    if ckpts:
+                        submit(f'dasg evaluate {opts[corpus]} --split test -b 8 --device cpu '
+                               f'-o {outdir()}/results.pkl {opts[case]} -s {tagset} --turns {ckpts[0]}', num_gpus=0,
+                               name='test')
+                    else:
+                        print('No checkpoint in directory:', outdir())
                 context = 'dialog'
                 # Transformers dialog-level
                 if args.train:
                     submit(f"dasg train-transformer {opts[model]} -b {bsize[model]} -c 8 -e 10 "
                            f"-a {gacc[model]} -r {seed} -g 1 {outdir()}", name='train')
                 if args.evaluate:
-                    ckpt = list(Path(outdir()).glob('checkpoint*.ckpt'))[0]
-                    submit(f'dasg evaluate {opts[corpus]} -l {seqlen[model]} --split test -b 1 --device cpu '
-                           f'-o {outdir()}/results.pkl {opts[case]} -s {tagset} {ckpt}', num_gpus=0, name='test')
-                    if model == 'xlnet':
+                    ckpts = list(Path(outdir()).glob('checkpoint*.ckpt'))
+                    if ckpts:
                         submit(f'dasg evaluate {opts[corpus]} -l {seqlen[model]} --split test -b 1 --device cpu '
-                               f'-o {outdir()}/results_noprop.pkl {opts[case]} -s {tagset} -d {ckpt}', num_gpus=0,
-                               name='test_noprop')
+                               f'-o {outdir()}/results.pkl {opts[case]} -s {tagset} {ckpt}', num_gpus=0, name='test')
+                        if model == 'xlnet':
+                            submit(f'dasg evaluate {opts[corpus]} -l {seqlen[model]} --split test -b 1 --device cpu '
+                                   f'-o {outdir()}/results_noprop.pkl {opts[case]} -s {tagset} -d {ckpt}', num_gpus=0,
+                                   name='test_noprop')
+                    else:
+                        print('No checkpoint in directory:', outdir())
