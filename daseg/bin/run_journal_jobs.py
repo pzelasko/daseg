@@ -175,10 +175,12 @@ for corpus in ('swda', 'mrda'):
                     ckpts = list(Path(outdir()).glob('checkpoint*.ckpt'))
                     if ckpts:
                         submit(f'dasg evaluate {opts[corpus]} -l {seqlen[model]} --split test -b 1 --device cpu '
-                               f'-o {outdir()}/results.pkl {opts[case]} -s {tagset} {ckpt}', num_gpus=0, name='test')
+                               f'-o {outdir()}/results.pkl {opts[case]} -s {tagset} {ckpts[0]}', num_gpus=0,
+                               name='test')
                         if model == 'xlnet':
                             submit(f'dasg evaluate {opts[corpus]} -l {seqlen[model]} --split test -b 1 --device cpu '
-                                   f'-o {outdir()}/results_noprop.pkl {opts[case]} -s {tagset} -d {ckpt}', num_gpus=0,
+                                   f'-o {outdir()}/results_noprop.pkl {opts[case]} -s {tagset} -d {ckpts[0]}',
+                                   num_gpus=0,
                                    name='test_noprop')
                     else:
                         print('No checkpoint in directory:', outdir())
