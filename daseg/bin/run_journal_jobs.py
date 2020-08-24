@@ -201,10 +201,7 @@ if args.label_sets:
                         f'{opts[case]} -s {tagset} -l {seqlen[model]} -w {outdir(use_seed=False)}')
                 for seed in SEEDS:
                     if not args.dry_run:
-                        try:
-                            shutil.copytree(outdir(use_seed=False), outdir(use_seed=True, mkdir=False))
-                        except FileExistsError:
-                            pass
+                        run(f'cp {outdir(use_seed=False)}/* {outdir()}')
                     if args.train:
                         submit(f"dasg train-transformer {opts[model]} -b {bsize[model]} -c 8 -e 10 "
                                f"-a {gacc[model]} -r {seed} -g 1 {outdir()}", name='train')
