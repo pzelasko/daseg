@@ -161,7 +161,7 @@ for corpus in ('swda', 'mrda'):
                 if args.evaluate:
                     ckpts = list(Path(outdir()).glob('checkpoint*.ckpt'))
                     if ckpts:
-                        submit(f'dasg evaluate {opts[corpus]} --split test -b 8 --device cpu '
+                        submit(f'dasg evaluate {opts[corpus]} --split test -b 1 --device cpu '
                                f'-o {outdir()}/results.pkl {opts[case]} -s {tagset} --turns {ckpts[0]}', num_gpus=0,
                                name='test')
                     else:

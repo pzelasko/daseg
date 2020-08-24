@@ -1,4 +1,5 @@
 import warnings
+from functools import partial
 from itertools import chain
 from typing import Iterable, Optional, List
 
@@ -110,12 +111,12 @@ def to_dataset(
     return dataset
 
 
-def to_dataloader(dataset: Dataset, batch_size: int, train: bool = True) -> DataLoader:
+def to_dataloader(dataset: Dataset, padding_at_start: bool, batch_size: int, train: bool = True) -> DataLoader:
     return DataLoader(
         dataset=dataset,
         sampler=RandomSampler(dataset) if train else SequentialSampler(dataset),
         batch_size=batch_size,
-        collate_fn=truncate_padding_collate_fn,
+        collate_fn=partial(truncate_padding_collate_fn, padding_at_start=padding_at_start),
         pin_memory=True,
         num_workers=4
     )
@@ -142,7 +143,7 @@ def to_transformers_train_dataloader(
         use_turns=use_turns,
         windows_if_exceeds_max_length=windows_if_exceeds_max_length
     )
-    return to_dataloader(dataset, batch_size=batch_size, train=True)
+    return to_dataloader(dataset, batch_size=batch_size, train=True, padding_at_start=model_type == 'xlnet')
 
 
 def to_transformers_eval_dataloader(
@@ -174,13 +175,16 @@ def to_transformers_eval_dataloader(
         use_joint_coding=use_joint_coding,
         use_turns=use_turns
     )
-    return to_dataloader(dataset, batch_size=batch_size, train=False)
+    return to_dataloader(dataset, batch_size=batch_size, train=False, padding_at_start=model_type == 'xlnet')
 
 
-def truncate_padding_collate_fn(batch: List[List[torch.Tensor]]):
+def truncate_padding_collate_fn(batch: List[List[torch.Tensor]], padding_at_start: bool = False):
     redundant_padding = max(mask.sum() for _, mask, _, _ in batch)
     n_tensors = len(batch[0])
-    return [torch.cat([sample[i].unsqueeze(0) for sample in batch])[:, :redundant_padding] for i in range(n_tensors)]
+    concat_tensors = (torch.cat([sample[i].unsqueeze(0) for sample in batch]) for i in range(n_tensors))
+    if padding_at_start:
+        return [t[:, -redundant_padding:] for t in concat_tensors]
+    return [t[:, :redundant_padding] for t in concat_tensors]
 
 
 def pad_list_of_arrays(arrays: List[np.ndarray], value: float) -> List[np.ndarray]:

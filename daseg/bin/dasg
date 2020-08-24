@@ -217,7 +217,11 @@ def train_transformer(
         labels: List[str] = pickle.load(f)
     model = DialogActTransformer(labels=labels, model_name_or_path=model_name_or_path)
     loaders = {
-        key: to_dataloader(dset, batch_size=batch_size if key == 'train' else val_batch_size)
+        key: to_dataloader(
+            dset,
+            batch_size=batch_size if key == 'train' else val_batch_size,
+            padding_at_start=model.config.model_type == 'xlnet'
+        )
         for key, dset in datasets.items()
     }
     model.compute_and_set_total_steps(
