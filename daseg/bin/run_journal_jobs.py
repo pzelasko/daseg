@@ -118,7 +118,7 @@ def outdir(use_seed=True, mkdir=True):
             return f'{EXP_DIR}/{model}_{corpus}_{context}_{case}_{tagset}_{seed}'
         return f'{EXP_DIR}/{model}_{corpus}_{context}_{case}_{tagset}'
     path = inner()
-    if mkdir:
+    if mkdir and not args.dry_run:
         Path(path).mkdir(exist_ok=True, parents=True)
     return path
 
