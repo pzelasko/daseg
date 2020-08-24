@@ -78,13 +78,11 @@ def run(cmd: str):
 def submit(cmd: str, name: str, work_dir: str = WORK_DIR, num_gpus: int = 1):
     if args.use_grid:
         script_path = f'{outdir()}/run_task_{name}.sh'
-        with open(script_path, 'w') as f:
-            script = SCRIPT_TEMPLATE.format(
-                num_gpus=num_gpus,
-                work_dir=work_dir,
-                cmd=cmd
-            )
-            print(script, file=f)
+        script = SCRIPT_TEMPLATE.format(
+            num_gpus=num_gpus,
+            work_dir=work_dir,
+            cmd=cmd
+        )
         qsub = QSUB_TEMPLATE.format(
             num_gpus=num_gpus,
             script=script_path,
@@ -93,12 +91,14 @@ def submit(cmd: str, name: str, work_dir: str = WORK_DIR, num_gpus: int = 1):
             queue='g.q' if num_gpus else 'all.q',
             name=(cmd.split()[0] + '-' + Path(cmd.split()[-1]).stem).replace(' ', '-')
         )
-        with open(f'{outdir()}/qsub_{name}.sh', 'w') as f:
-            print(f'#!/usr/bin/env bash\n{qsub}', file=f)
         if args.dry_run:
             print(qsub)
             print(script, end='\n\n')
         else:
+            with open(script_path, 'w') as f:
+                print(script, file=f)
+            with open(f'{outdir()}/qsub_{name}.sh', 'w') as f:
+                print(f'#!/usr/bin/env bash\n{qsub}', file=f)
             run(qsub)
     else:
         run(cmd)
