@@ -151,7 +151,9 @@ class ZhaoKawaharaBiGru(pl.LightningModule):
 
     def save_results(self, path: Path):
         with open(path, 'wb') as f:
-            pickle.dump({k: float(v.detach().cpu()) for k, v in self.results['progress_bar'].items()}, f)
+            pickle.dump(
+                {k: float(v.cpu()) if not isinstance(v, float) else v for k, v in self.results['progress_bar'].items()},
+                f)
 
     def configure_optimizers(self):
         optim = torch.optim.AdamW(self.parameters(), lr=0.001, weight_decay=0.0001)
