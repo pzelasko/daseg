@@ -6,7 +6,7 @@ from time import sleep
 
 def str2bool(v):
     if isinstance(v, bool):
-       return v
+        return v
     if v.lower() in ('yes', 'true', 't', 'y', '1'):
         return True
     elif v.lower() in ('no', 'false', 'f', 'n', '0'):
@@ -14,7 +14,10 @@ def str2bool(v):
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
+
 parser = argparse.ArgumentParser()
+parser.add_argument('--general-exps', type=str2bool, default=True)
+parser.add_argument('--label-sets', type=str2bool, default=False)
 parser.add_argument('--use-grid', type=str2bool, default=True)
 parser.add_argument('--pause', type=str2bool, default=False)
 parser.add_argument('--skip-data-prep', type=str2bool, default=False)
@@ -122,65 +125,94 @@ def outdir(use_seed=True, mkdir=True):
 
 MODELS = (['longformer'] if args.longformer else []) + (['xlnet'] if args.xlnet else [])
 
-tagset = 'basic'
-for corpus in ('swda', 'mrda'):
-    for case in ('lower', 'nolower'):
-        # Data preparation
-        if not args.skip_data_prep:
-            for model in MODELS:
-                # Transformers dialog-level baseline data-prep
-                context = 'dialog'
-                run(f'dasg prepare-exp {opts[model]} {opts[corpus]} '
-                    f'{opts[case]} -s {tagset} -l {seqlen[model]} -w {outdir(use_seed=False)}')
-                # Transformers turn-level baseline data-prep
-                context = 'turn'
-                run(f'dasg prepare-exp {opts[model]} {opts[corpus]} '
-                    f'{opts[case]} -s {tagset} --turns -l 128 {outdir(use_seed=False)}')
-        # Model training
-        for seed in SEEDS:
-            # BiGRU turn-level baseline
-            if args.bigru:
-                model = 'bigru'
-                context = 'turn'
-                submit(
-                    f'dasg train-bigru -g 1 -s {tagset} -b 30 -e 10 -r {seed} {opts[corpus]} {opts[case]} {outdir()}',
-                    name='train')
-            # Transformers
-            for model in MODELS:
-                for context in ('turn', 'dialog'):
+if args.general_exps:
+    tagset = 'basic'
+    for corpus in ('swda', 'mrda'):
+        for case in ('lower', 'nolower'):
+            # Data preparation
+            if not args.skip_data_prep:
+                for model in MODELS:
+                    # Transformers dialog-level baseline data-prep
+                    context = 'dialog'
+                    run(f'dasg prepare-exp {opts[model]} {opts[corpus]} '
+                        f'{opts[case]} -s {tagset} -l {seqlen[model]} -w {outdir(use_seed=False)}')
+                    # Transformers turn-level baseline data-prep
+                    context = 'turn'
+                    run(f'dasg prepare-exp {opts[model]} {opts[corpus]} '
+                        f'{opts[case]} -s {tagset} --turns -l 128 {outdir(use_seed=False)}')
+            # Model training
+            for seed in SEEDS:
+                # BiGRU turn-level baseline
+                if args.bigru:
+                    model = 'bigru'
+                    context = 'turn'
+                    submit(
+                        f'dasg train-bigru -g 1 -s {tagset} -b 30 -e 10 -r {seed} {opts[corpus]} {opts[case]} {outdir()}',
+                        name='train')
+                # Transformers
+                for model in MODELS:
+                    for context in ('turn', 'dialog'):
+                        if not args.dry_run:
+                            try:
+                                shutil.copytree(outdir(use_seed=False), outdir(use_seed=True, mkdir=False))
+                            except FileExistsError:
+                                pass
+                    # Transformers turn-level baseline
+                    context = 'turn'
+                    if args.train:
+                        submit(f"dasg train-transformer {opts[model]} -b 8 -c 8 -e 10 "
+                               f"-a 1 -r {seed} -g 1 {outdir()}", name='train')
+                    if args.evaluate:
+                        ckpts = list(Path(outdir()).glob('checkpoint*.ckpt'))
+                        if ckpts:
+                            submit(f'dasg evaluate {opts[corpus]} --split test -b 1 --device cpu '
+                                   f'-o {outdir()}/results.pkl {opts[case]} -s {tagset} --turns {ckpts[0]}', num_gpus=0,
+                                   name='test')
+                        else:
+                            print('No checkpoint in directory:', outdir())
+                    context = 'dialog'
+                    # Transformers dialog-level
+                    if args.train:
+                        submit(f"dasg train-transformer {opts[model]} -b {bsize[model]} -c 8 -e 10 "
+                               f"-a {gacc[model]} -r {seed} -g 1 {outdir()}", name='train')
+                    if args.evaluate:
+                        ckpts = list(Path(outdir()).glob('checkpoint*.ckpt'))
+                        if ckpts:
+                            submit(f'dasg evaluate {opts[corpus]} -l {seqlen[model]} --split test -b 1 --device cpu '
+                                   f'-o {outdir()}/results.pkl {opts[case]} -s {tagset} {ckpts[0]}', num_gpus=0,
+                                   name='test')
+                            if model == 'xlnet':
+                                submit(
+                                    f'dasg evaluate {opts[corpus]} -l {seqlen[model]} --split test -b 1 --device cpu '
+                                    f'-o {outdir()}/results_noprop.pkl {opts[case]} -s {tagset} -d {ckpts[0]}',
+                                    num_gpus=0,
+                                    name='test_noprop')
+                        else:
+                            print('No checkpoint in directory:', outdir())
+
+if args.label_sets:
+    context = 'dialog'
+    model = 'xlnet'
+    for corpus in ('mrda', 'swda'):
+        for tagset in ['segmentation'] + (['general', 'full'] if corpus == 'mrda' else []):
+            for case in ('lower', 'nolower'):
+                if not args.skip_data_prep and not (Path(outdir(use_seed=False)) / 'dataset.pkl').exists():
+                    run(f'dasg prepare-exp {opts[model]} {opts[corpus]} '
+                        f'{opts[case]} -s {tagset} -l {seqlen[model]} -w {outdir(use_seed=False)}')
+                for seed in SEEDS:
                     if not args.dry_run:
                         try:
                             shutil.copytree(outdir(use_seed=False), outdir(use_seed=True, mkdir=False))
                         except FileExistsError:
                             pass
-                # Transformers turn-level baseline
-                context = 'turn'
-                if args.train:
-                    submit(f"dasg train-transformer {opts[model]} -b 8 -c 8 -e 10 "
-                           f"-a 1 -r {seed} -g 1 {outdir()}", name='train')
-                if args.evaluate:
-                    ckpts = list(Path(outdir()).glob('checkpoint*.ckpt'))
-                    if ckpts:
-                        submit(f'dasg evaluate {opts[corpus]} --split test -b 1 --device cpu '
-                               f'-o {outdir()}/results.pkl {opts[case]} -s {tagset} --turns {ckpts[0]}', num_gpus=0,
-                               name='test')
-                    else:
-                        print('No checkpoint in directory:', outdir())
-                context = 'dialog'
-                # Transformers dialog-level
-                if args.train:
-                    submit(f"dasg train-transformer {opts[model]} -b {bsize[model]} -c 8 -e 10 "
-                           f"-a {gacc[model]} -r {seed} -g 1 {outdir()}", name='train')
-                if args.evaluate:
-                    ckpts = list(Path(outdir()).glob('checkpoint*.ckpt'))
-                    if ckpts:
-                        submit(f'dasg evaluate {opts[corpus]} -l {seqlen[model]} --split test -b 1 --device cpu '
-                               f'-o {outdir()}/results.pkl {opts[case]} -s {tagset} {ckpts[0]}', num_gpus=0,
-                               name='test')
-                        if model == 'xlnet':
+                    if args.train:
+                        submit(f"dasg train-transformer {opts[model]} -b {bsize[model]} -c 8 -e 10 "
+                               f"-a {gacc[model]} -r {seed} -g 1 {outdir()}", name='train')
+                    if args.evaluate:
+                        ckpts = list(Path(outdir()).glob('checkpoint*.ckpt'))
+                        if ckpts:
                             submit(f'dasg evaluate {opts[corpus]} -l {seqlen[model]} --split test -b 1 --device cpu '
-                                   f'-o {outdir()}/results_noprop.pkl {opts[case]} -s {tagset} -d {ckpts[0]}',
-                                   num_gpus=0,
-                                   name='test_noprop')
-                    else:
-                        print('No checkpoint in directory:', outdir())
+                                   f'-o {outdir()}/results.pkl {opts[case]} -s {tagset} {ckpts[0]}', num_gpus=0,
+                                   name='test')
+                        else:
+                            print('No checkpoint in directory:', outdir())
