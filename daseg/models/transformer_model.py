@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from functools import partial
 from operator import itemgetter
 from pathlib import Path
@@ -228,4 +229,9 @@ def predict_batch_in_windows(
             logits.append(batch_logits.detach().cpu().numpy())
             if use_xlnet_memory:
                 mems = outputs[2]
-    return ce_loss, np.concatenate(logits, axis=1), batch[3].detach().cpu().numpy()
+    # workaround for PyTorch file descriptor leaks:
+    # https://github.com/pytorch/pytorch/issues/973
+    returns = ce_loss, np.concatenate(logits, axis=1), deepcopy(batch[3].detach().cpu().numpy())
+    for t in batch:
+        del t
+    return returns
