@@ -24,6 +24,8 @@ parser.add_argument('--skip-data-prep', type=str2bool, default=False)
 parser.add_argument('--bigru', type=str2bool, default=True)
 parser.add_argument('--longformer', type=str2bool, default=True)
 parser.add_argument('--xlnet', type=str2bool, default=True)
+parser.add_argument('--turns', type=str2bool, default=True)
+parser.add_argument('--dialog', type=str2bool, default=True)
 parser.add_argument('--train', type=str2bool, default=True)
 parser.add_argument('--evaluate', type=str2bool, default=False)
 parser.add_argument('--dry-run', type=str2bool, default=False)
@@ -134,17 +136,19 @@ if args.general_exps:
             if not args.skip_data_prep:
                 for model in MODELS:
                     # Transformers dialog-level baseline data-prep
-                    context = 'dialog'
-                    run(f'dasg prepare-exp {opts[model]} {opts[corpus]} '
-                        f'{opts[case]} -s {tagset} -l {seqlen[model]} -w {outdir(use_seed=False)}')
+                    if args.dialog:
+                        context = 'dialog'
+                        run(f'dasg prepare-exp {opts[model]} {opts[corpus]} '
+                            f'{opts[case]} -s {tagset} -l {seqlen[model]} -w {outdir(use_seed=False)}')
                     # Transformers turn-level baseline data-prep
-                    context = 'turn'
-                    run(f'dasg prepare-exp {opts[model]} {opts[corpus]} '
-                        f'{opts[case]} -s {tagset} --turns -l 128 {outdir(use_seed=False)}')
+                    if args.turns:
+                        context = 'turn'
+                        run(f'dasg prepare-exp {opts[model]} {opts[corpus]} '
+                            f'{opts[case]} -s {tagset} --turns -l 128 {outdir(use_seed=False)}')
             # Model training
             for seed in SEEDS:
                 # BiGRU turn-level baseline
-                if args.bigru:
+                if args.bigru and args.turns:
                     model = 'bigru'
                     context = 'turn'
                     submit(
@@ -152,44 +156,48 @@ if args.general_exps:
                         name='train')
                 # Transformers
                 for model in MODELS:
-                    for context in ('turn', 'dialog'):
+                    for context in (['turn'] if args.turns else []) + (['dialog'] if args.dialog else []):
                         if not args.dry_run:
                             try:
                                 shutil.copytree(outdir(use_seed=False), outdir(use_seed=True, mkdir=False))
                             except FileExistsError:
                                 pass
                     # Transformers turn-level baseline
-                    context = 'turn'
-                    if args.train:
-                        submit(f"dasg train-transformer {opts[model]} -b 8 -c 8 -e 10 "
-                               f"-a 1 -r {seed} -g 1 {outdir()}", name='train')
-                    if args.evaluate:
-                        ckpts = list(Path(outdir()).glob('checkpoint*.ckpt'))
-                        if ckpts:
-                            submit(f'dasg evaluate {opts[corpus]} --split test -b 1 --device cpu '
-                                   f'-o {outdir()}/results.pkl {opts[case]} -s {tagset} --turns {ckpts[0]}', num_gpus=0,
-                                   name='test')
-                        else:
-                            print('No checkpoint in directory:', outdir())
-                    context = 'dialog'
+                    if args.turns:
+                        context = 'turn'
+                        if args.train:
+                            submit(f"dasg train-transformer {opts[model]} -b 8 -c 8 -e 10 "
+                                   f"-a 1 -r {seed} -g 1 {outdir()}", name='train')
+                        if args.evaluate:
+                            ckpts = list(Path(outdir()).glob('checkpoint*.ckpt'))
+                            if ckpts:
+                                submit(f'dasg evaluate {opts[corpus]} --split test -b 1 --device cpu '
+                                       f'-o {outdir()}/results.pkl {opts[case]} -s {tagset} --turns {ckpts[0]}',
+                                       num_gpus=0,
+                                       name='test')
+                            else:
+                                print('No checkpoint in directory:', outdir())
                     # Transformers dialog-level
-                    if args.train:
-                        submit(f"dasg train-transformer {opts[model]} -b {bsize[model]} -c 8 -e 10 "
-                               f"-a {gacc[model]} -r {seed} -g 1 {outdir()}", name='train')
-                    if args.evaluate:
-                        ckpts = list(Path(outdir()).glob('checkpoint*.ckpt'))
-                        if ckpts:
-                            submit(f'dasg evaluate {opts[corpus]} -l {seqlen[model]} --split test -b 1 --device cpu '
-                                   f'-o {outdir()}/results.pkl {opts[case]} -s {tagset} {ckpts[0]}', num_gpus=0,
-                                   name='test')
-                            if model == 'xlnet':
+                    if args.dialog:
+                        context = 'dialog'
+                        if args.train:
+                            submit(f"dasg train-transformer {opts[model]} -b {bsize[model]} -c 8 -e 10 "
+                                   f"-a {gacc[model]} -r {seed} -g 1 {outdir()}", name='train')
+                        if args.evaluate:
+                            ckpts = list(Path(outdir()).glob('checkpoint*.ckpt'))
+                            if ckpts:
                                 submit(
                                     f'dasg evaluate {opts[corpus]} -l {seqlen[model]} --split test -b 1 --device cpu '
-                                    f'-o {outdir()}/results_noprop.pkl {opts[case]} -s {tagset} -d {ckpts[0]}',
-                                    num_gpus=0,
-                                    name='test_noprop')
-                        else:
-                            print('No checkpoint in directory:', outdir())
+                                    f'-o {outdir()}/results.pkl {opts[case]} -s {tagset} {ckpts[0]}', num_gpus=0,
+                                    name='test')
+                                if model == 'xlnet':
+                                    submit(
+                                        f'dasg evaluate {opts[corpus]} -l {seqlen[model]} --split test -b 1 --device cpu '
+                                        f'-o {outdir()}/results_noprop.pkl {opts[case]} -s {tagset} -d {ckpts[0]}',
+                                        num_gpus=0,
+                                        name='test_noprop')
+                            else:
+                                print('No checkpoint in directory:', outdir())
 
 if args.label_sets:
     context = 'dialog'
