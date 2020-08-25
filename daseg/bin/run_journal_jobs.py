@@ -27,6 +27,7 @@ parser.add_argument('--xlnet', type=str2bool, default=True)
 parser.add_argument('--train', type=str2bool, default=True)
 parser.add_argument('--evaluate', type=str2bool, default=False)
 parser.add_argument('--dry-run', type=str2bool, default=False)
+parser.add_argument('--exp-dir', default='journal')
 args = parser.parse_args()
 
 SCRIPT_TEMPLATE = """#!/usr/bin/env bash
@@ -40,7 +41,7 @@ cd {work_dir}
 QSUB_TEMPLATE = "qsub -l \"hostname=c*,gpu={num_gpus}\" -q {queue} -e {logerr} -o {logout} -N {name} {script}"
 
 WORK_DIR = '/export/c12/pzelasko/daseg/daseg'
-EXP_DIR = str(Path(WORK_DIR) / 'journal')
+EXP_DIR = str(Path(WORK_DIR) / args.exp_dir)
 SEEDS = (42, 43, 44)
 
 opts = {
@@ -63,7 +64,7 @@ bsize = {
 }
 
 gacc = {
-    'longformer': 6,
+    'longformer': 1,
     'xlnet': 1
 }
 
