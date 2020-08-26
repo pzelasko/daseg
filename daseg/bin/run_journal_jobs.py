@@ -40,7 +40,7 @@ cd {work_dir}
 {cmd}
 """
 
-QSUB_TEMPLATE = "qsub -l \"hostname=c*,gpu={num_gpus}\" -q {queue} -e {logerr} -o {logout} -N {name} {script}"
+QSUB_TEMPLATE = "qsub -l \"hostname=c*,gpu={num_gpus},mem_free={mem}G,ram_free={mem}G\" -q {queue} -e {logerr} -o {logout} -N {name} {script}"
 
 WORK_DIR = '/export/c12/pzelasko/daseg/daseg'
 EXP_DIR = str(Path(WORK_DIR) / args.exp_dir)
@@ -88,6 +88,7 @@ def submit(cmd: str, name: str, work_dir: str = WORK_DIR, num_gpus: int = 1):
         )
         qsub = QSUB_TEMPLATE.format(
             num_gpus=num_gpus,
+            mem=4,
             script=script_path,
             logerr=f'{outdir()}/stderr_{name}.txt',
             logout=f'{outdir()}/stdout_{name}.txt',
