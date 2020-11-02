@@ -5,12 +5,11 @@ from typing import List
 
 import streamlit as st
 
-from daseg import DialogActCorpus, Call
+from daseg import Call, DialogActCorpus
 
 DATASET_PATHS = [
     '/Users/pzelasko/jhu/daseg/deps/mrda',
     '/Users/pzelasko/jhu/daseg/deps/swda/swda',
-    '/Users/pzelasko/jhu/da/apptek-xml/16-06-2020-apptek-all-calls/apptek-500-csv-calls-dataset.pkl',
 ]
 HTML_WRAPPER = """<div style="overflow-x: auto; border: 1px solid #e6e9ef; border-radius: 0.25rem; padding: 1rem; margin-bottom: 2.5rem">{}</div>"""
 
