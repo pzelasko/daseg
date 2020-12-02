@@ -4,7 +4,6 @@ scikit-learn>=0.22
 git+https://github.com/pzelasko/plz
 git+https://github.com/pzelasko/seqeval
 Biopython
-transformers==3.0.2
 gluonnlp
 seaborn
 mxnet
