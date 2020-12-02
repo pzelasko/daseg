@@ -1,17 +1,10 @@
 import torch
 from torch import nn
 from torch.nn import CrossEntropyLoss
-from transformers import LongformerModel, LongformerConfig, BertPreTrainedModel, \
-    add_start_docstrings, LONGFORMER_PRETRAINED_MODEL_ARCHIVE_LIST
-from transformers.file_utils import add_start_docstrings_to_callable
-from transformers.modeling_roberta import ROBERTA_START_DOCSTRING, ROBERTA_INPUTS_DOCSTRING
+from transformers import BertPreTrainedModel, LONGFORMER_PRETRAINED_MODEL_ARCHIVE_LIST, LongformerConfig, \
+    LongformerModel
 
 
-@add_start_docstrings(
-    """Roberta Model with a token classification head on top (a linear layer on top of
-    the hidden-states output) e.g. for Named-Entity-Recognition (NER) tasks. """,
-    ROBERTA_START_DOCSTRING,
-)
 class LongformerForTokenClassification(BertPreTrainedModel):
     config_class = LongformerConfig
     pretrained_model_archive_map = LONGFORMER_PRETRAINED_MODEL_ARCHIVE_LIST
@@ -33,7 +26,6 @@ class LongformerForTokenClassification(BertPreTrainedModel):
     def set_input_embeddings(self, value: nn.Module):
         return self.roberta.set_input_embeddings(value)
 
-    @add_start_docstrings_to_callable(ROBERTA_INPUTS_DOCSTRING)
     def forward(
             self,
             input_ids=None,
