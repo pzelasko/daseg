@@ -193,6 +193,9 @@ class DialogActCorpus:
         )
         return DialogActCorpus(dialogues)
 
+    def __getitem__(self, item: str) -> 'Call':
+        return self.dialogues[item]
+
     @property
     def call_ids(self) -> List[str]:
         return list(self.dialogues.keys())

@@ -1,6 +1,6 @@
 from collections import defaultdict
 from itertools import chain
-from typing import List, Set, Tuple, Dict
+from typing import Dict, List, Set, Tuple
 
 import pandas as pd
 import seqeval.metrics as seqmetrics
@@ -10,12 +10,21 @@ import torch
 from Bio import pairwise2
 from more_itertools import flatten
 
-from daseg import DialogActCorpus, Call
+from daseg import Call, DialogActCorpus
 from daseg.data import CONTINUE_TAG
 
 
 def as_tensors(metrics: Dict[str, float]) -> Dict[str, torch.Tensor]:
     return {k: torch.as_tensor(v) for k, v in metrics.items()}
+
+
+def validate_ids(true_dataset: DialogActCorpus, pred_dataset: DialogActCorpus):
+    true_ids = set(true_dataset.call_ids)
+    pred_ids = set(pred_dataset.call_ids)
+    not_in_true = pred_ids - true_ids
+    not_in_pred = true_ids - pred_ids
+    assert len(not_in_true) == 0, f"There are {not_in_true} calls with IDs missing in the true set ({not_in_true})."
+    assert len(not_in_pred) == 0, f"There are {not_in_pred} calls with IDs missing in the pred set ({not_in_pred})."
 
 
 def compute_sklearn_metrics(true_labels: List[List[str]], predictions: List[List[str]], compute_common_I: bool = True):
@@ -69,6 +78,7 @@ def compute_zhao_kawahara_metrics_levenshtein(true_dataset: DialogActCorpus, pre
     Joint WER (Joint Word Error Rate) is similar to the Segmentation WER measure,
     and it also requires both bound- aries and DA type to be correctly predicted.
     """
+    validate_ids(true_dataset=true_dataset, pred_dataset=pred_dataset)
     span_stats = compute_span_errors(true_dataset=true_dataset, pred_dataset=pred_dataset)
     DSER = (span_stats['sub'] + span_stats['ins'] + span_stats['del']) / span_stats['tot']
 
@@ -102,7 +112,9 @@ def compute_labeled_span_errors(true_dataset: DialogActCorpus, pred_dataset: Dia
     GAP_CHAR = '-'
 
     alignments = []
-    for true_call, pred_call in zip(true_dataset.calls, pred_dataset.calls):
+    for cid in true_dataset.call_ids:
+        true_call = true_dataset[cid]
+        pred_call = pred_dataset[cid]
         ali = pairwise2.align.globalxs(
             list(true_call.dialog_act_spans()),
             list(pred_call.dialog_act_spans()),
@@ -139,7 +151,9 @@ def compute_span_errors(true_dataset: DialogActCorpus, pred_dataset: DialogActCo
     GAP_CHAR = (-1, -1)
 
     alignments = []
-    for true_call, pred_call in zip(true_dataset.calls, pred_dataset.calls):
+    for cid in true_dataset.call_ids:
+        true_call = true_dataset[cid]
+        pred_call = pred_dataset[cid]
         ali = pairwise2.align.globalxs(
             list(true_call.dialog_act_spans(False)),
             list(pred_call.dialog_act_spans(False)),
@@ -193,6 +207,7 @@ def compute_zhao_kawahara_metrics(true_dataset: DialogActCorpus, pred_dataset: D
     Joint WER (Joint Word Error Rate) is similar to the Segmentation WER measure,
     and it also requires both bound- aries and DA type to be correctly predicted.
     """
+    validate_ids(true_dataset=true_dataset, pred_dataset=pred_dataset)
 
     counts = {
         'DSER': 0,
@@ -212,7 +227,9 @@ def compute_zhao_kawahara_metrics(true_dataset: DialogActCorpus, pred_dataset: D
             word_pos += n_words
         return segment_set
 
-    for true_call, pred_call in zip(true_dataset.calls, pred_dataset.calls):
+    for cid in true_dataset.call_ids:
+        true_call = true_dataset[cid]
+        pred_call = pred_dataset[cid]
         true_segments = build_segment_set(true_call, with_labels=False)
         pred_segments = build_segment_set(pred_call, with_labels=False)
         error_segments = true_segments - pred_segments
