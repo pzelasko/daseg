@@ -2,7 +2,7 @@
 import pickle
 import sys
 from pathlib import Path
-from typing import Optional, Dict, List
+from typing import Dict, List, Optional
 
 import click
 import pytorch_lightning as pl
@@ -13,9 +13,10 @@ from torch.utils.data.dataloader import DataLoader
 
 from daseg import DialogActCorpus, TransformerModel
 from daseg.data import BLANK
-from daseg.dataloaders.transformers import to_dataset, to_dataloader
+from daseg.dataloaders.transformers import to_dataloader, to_dataset
 from daseg.dataloaders.turns import SingleTurnDataset, padding_collate_fn
 from daseg.models.bigru import ZhaoKawaharaBiGru
+from daseg.models.bigru_inference import BigruSegmenter
 from daseg.models.transformer_pl import DialogActTransformer
 from daseg.slack import SlackNotifier
 
@@ -338,6 +339,51 @@ def train_bigru(
         test_dataloaders=loaders['test']
     )
     model.save_results(output_path / 'results.pkl')
+
+
+@cli.command()
+@click.argument('model_path', type=click.Path(exists=True))
+@click.option('--dataset-path', default='deps/swda/swda', type=click.Path(exists=True))
+@click.option('--split', type=click.Choice(['train', 'dev', 'test']), default='test')
+@click.option('-b', '--batch_size', default=4, type=int)
+@click.option('--device', default='cpu', type=str)
+@click.option('-o', '--save-output', default=None, type=click.Path())
+@click.option('-p', '--strip-punctuation-and-lowercase', is_flag=True)
+@click.option('-m', '--merge-continuations', is_flag=True)
+@click.option('-s', '--tagset', default='basic',
+              type=click.Choice(['basic', 'general', 'full', 'broken_swda', 'segmentation']))
+@click.option('-v', '--verbose', is_flag=True)
+def evaluate_bigru(
+        model_path: str,
+        dataset_path: str,
+        split: str,
+        batch_size: int,
+        device: str,
+        save_output: Optional[str],
+        strip_punctuation_and_lowercase: bool,
+        merge_continuations: bool,
+        tagset: str,
+        verbose: bool,
+):
+    model = BigruSegmenter.from_path(Path(model_path), device=device)
+    dataset = DialogActCorpus.from_path(
+        dataset_path,
+        splits=[split],
+        strip_punctuation_and_lowercase=strip_punctuation_and_lowercase,
+        tagset=tagset,
+        merge_continuations=merge_continuations
+    ).with_vocabulary(set(model.model.vocab))
+    results = model.predict(
+        dataset=dataset,
+        batch_size=batch_size,
+        verbose=verbose
+    )
+    with SlackNotifier(' '.join(sys.argv)) as slack:
+        for key, val in results['log'].items():
+            slack.write_and_print(f'{key}\t{val:.2%}')
+    if save_output is not None:
+        with open(save_output, 'wb') as f:
+            pickle.dump(results, f)
 
 
 if __name__ == '__main__':

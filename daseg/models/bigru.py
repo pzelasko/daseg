@@ -9,7 +9,7 @@ from torch import nn
 from torch.nn import CrossEntropyLoss
 
 from daseg.conversion import joint_coding_predictions_to_corpus
-from daseg.metrics import compute_sklearn_metrics, compute_zhao_kawahara_metrics, compute_original_zhao_kawahara_metrics
+from daseg.metrics import compute_original_zhao_kawahara_metrics, compute_sklearn_metrics, compute_zhao_kawahara_metrics
 
 
 class ZhaoKawaharaBiGru(pl.LightningModule):
@@ -124,13 +124,14 @@ class ZhaoKawaharaBiGru(pl.LightningModule):
         for key in aggregated_metrics:
             aggregated_metrics[key] /= len(outputs)
 
-        metrics = self.compute_metrics(
+        metrics, datasets = self.compute_metrics(
             logits=[o['logits'] for o in outputs],
             true_labels=[o['true_labels'] for o in outputs]
         )
         aggregated_metrics.update(metrics)
 
         results = {
+            'datasets': datasets,
             'progress_bar': aggregated_metrics,
             'log': aggregated_metrics
         }
@@ -166,9 +167,6 @@ class ZhaoKawaharaBiGru(pl.LightningModule):
         return [optim], [sched]
 
     def compute_metrics(self, logits, true_labels):
-
-        # true_labels = np.concatenate(true_labels, axis=0)
-        # logits = np.concatenate(logits, axis=0)
         true_labels = list(flatten(true_labels))
         logits = list(flatten(logits))
         preds = [torch.argmax(l, dim=0) for l in logits]
@@ -186,9 +184,13 @@ class ZhaoKawaharaBiGru(pl.LightningModule):
                     preds_list[i].append(label_map[preds[i][j].item()])
 
         results = compute_sklearn_metrics(out_label_list, preds_list)
+
+        true_dataset = joint_coding_predictions_to_corpus(out_label_list)
+        pred_dataset = joint_coding_predictions_to_corpus(preds_list)
+
         metrics = compute_zhao_kawahara_metrics(
-            true_dataset=joint_coding_predictions_to_corpus(out_label_list),
-            pred_dataset=joint_coding_predictions_to_corpus(preds_list)
+            true_dataset=true_dataset,
+            pred_dataset=pred_dataset
         )
         metrics.update({k: results[k] for k in ('micro_f1', 'macro_f1')})
 
@@ -200,4 +202,4 @@ class ZhaoKawaharaBiGru(pl.LightningModule):
         for k in original_zhao_kawahara_metrics:
             metrics[f'ZK_{k}'] = original_zhao_kawahara_metrics[k]
 
-        return metrics
+        return metrics, {'true_dataset': true_dataset, 'pred_dataset': pred_dataset}

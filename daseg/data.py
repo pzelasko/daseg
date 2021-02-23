@@ -5,9 +5,9 @@ import pickle
 import re
 from collections import Counter
 from functools import partial
-from itertools import groupby, chain
+from itertools import chain, groupby
 from pathlib import Path
-from typing import NamedTuple, Tuple, List, FrozenSet, Iterable, Dict, Optional, Callable, Mapping, Set
+from typing import Callable, Dict, FrozenSet, Iterable, List, Mapping, NamedTuple, Optional, Set, Tuple
 
 from cytoolz.itertoolz import sliding_window
 from more_itertools import flatten
@@ -16,8 +16,9 @@ from spacy.tokens.doc import Doc
 from spacy.tokens.span import Span
 from tqdm.autonotebook import tqdm
 
-from daseg.resources import SWDA_BUGGY_DIALOG_ACTS, COLORMAP, get_nlp, to_buggy_swda_42_labels, MRDA_BASIC_DIALOG_ACTS, \
-    MRDA_GENERAL_DIALOG_ACTS, MRDA_FULL_DIALOG_ACTS, SEGMENTATION_ONLY_ACTS, SEGMENT_TAG, SWDA_TAG_TO_DIALOG_ACT
+from daseg.resources import COLORMAP, MRDA_BASIC_DIALOG_ACTS, MRDA_FULL_DIALOG_ACTS, MRDA_GENERAL_DIALOG_ACTS, \
+    SEGMENTATION_ONLY_ACTS, SEGMENT_TAG, SWDA_BUGGY_DIALOG_ACTS, SWDA_TAG_TO_DIALOG_ACT, get_nlp, \
+    to_buggy_swda_42_labels
 from daseg.splits import SWDA_SPLITS
 
 __all__ = ['FunctionalSegment', 'Call', 'DialogActCorpus']
@@ -238,6 +239,9 @@ class DialogActCorpus:
 
     def with_limited_vocabulary(self, n_most_common: int = 10000) -> 'DialogActCorpus':
         vocab = {w for w, n in self.vocabulary.most_common(n_most_common)}
+        return self.with_vocabulary(vocab)
+
+    def with_vocabulary(self, vocab: Set[str]) -> 'DialogActCorpus':
         return DialogActCorpus(
             dialogues={call_id: call.with_vocabulary(vocab) for call_id, call in self.dialogues.items()},
             splits=self.splits
