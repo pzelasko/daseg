@@ -3,7 +3,7 @@ from copy import deepcopy
 from functools import partial
 from operator import itemgetter
 from pathlib import Path
-from typing import Any, Dict, Optional, List, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -14,17 +14,13 @@ from torch.nn import DataParallel
 from torch.nn.modules.loss import CrossEntropyLoss
 from torch.utils.data.dataloader import DataLoader
 from tqdm.auto import tqdm
-from transformers import (
-    AutoTokenizer,
-    AutoModelForTokenClassification,
-    PreTrainedTokenizer, LongformerTokenizer
-)
+from transformers import (AutoModelForTokenClassification, AutoTokenizer, LongformerTokenizer, PreTrainedTokenizer)
 
 from daseg.conversion import predictions_to_dataset
 from daseg.data import DialogActCorpus
-from daseg.dataloaders.transformers import to_transformers_eval_dataloader, pad_list_of_arrays
-from daseg.metrics import compute_sklearn_metrics, compute_seqeval_metrics, compute_zhao_kawahara_metrics, \
-    compute_original_zhao_kawahara_metrics
+from daseg.dataloaders.transformers import pad_list_of_arrays, to_transformers_eval_dataloader
+from daseg.metrics import compute_original_zhao_kawahara_metrics, compute_seqeval_metrics, compute_sklearn_metrics, \
+    compute_zhao_kawahara_metrics
 from daseg.models.longformer_model import LongformerForTokenClassification
 from daseg.models.transformer_pl import DialogActTransformer
 
@@ -148,6 +144,8 @@ class TransformerModel:
             "logits": logits,
             "true_labels": out_label_list,
         }
+        if isinstance(dataset, DialogActCorpus):
+            results["true_dataset"] = dataset
         if compute_metrics:
             results.update({
                 "sklearn_metrics": compute_sklearn_metrics(out_label_list, preds_list),
