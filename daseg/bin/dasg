@@ -126,9 +126,13 @@ def evaluate(
         use_joint_coding=not no_joint_coding,
         use_turns=turns
     )
+    ctx = click.get_current_context()
+    results['args'] = ctx.params
     with SlackNotifier(' '.join(sys.argv)) as slack:
         for res_grp in (
-                'sklearn_metrics', 'seqeval_metrics', 'zhao_kawahara_metrics', 'ORIGINAL_zhao_kawahara_metrics'):
+                'sklearn_metrics', 'seqeval_metrics', 'zhao_kawahara_metrics', 'ORIGINAL_zhao_kawahara_metrics',
+                'args'
+        ):
             slack.write_and_print(f'{res_grp.upper()}:')
             for key, val in results[res_grp].items():
                 slack.write_and_print(f'{key}\t{val:.2%}')
@@ -378,6 +382,8 @@ def evaluate_bigru(
         batch_size=batch_size,
         verbose=verbose
     )
+    ctx = click.get_current_context()
+    results['args'] = ctx.params
     with SlackNotifier(' '.join(sys.argv)) as slack:
         for key, val in results['log'].items():
             slack.write_and_print(f'{key}\t{val:.2%}')
