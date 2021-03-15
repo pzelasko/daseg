@@ -268,7 +268,7 @@ class DialogActCorpus:
 
     def special_symbols(self) -> FrozenSet[str]:
         """Return the set of symbols in brackets found in SWDA transcripts."""
-        uniq_words = {w for segments in self.dialogues.values() for text, _, _, _ in segments for w in text.split()}
+        uniq_words = {w for segments in self.dialogues.values() for text, *_ in segments for w in text.split()}
         special_symbols = {re.sub(r'[\?\.,!;:]', '', w) for w in uniq_words if w.startswith('<')}
         return frozenset(special_symbols)
 
