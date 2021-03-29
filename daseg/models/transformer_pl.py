@@ -1,15 +1,15 @@
-import traceback
-import warnings
 from pathlib import Path
-from typing import Dict, Any, List
+from pathlib import Path
+from typing import Dict, List
 
 import numpy as np
 import pytorch_lightning as pl
 import torch
 from torch.nn.modules.loss import CrossEntropyLoss
 from torch.utils.data.dataloader import DataLoader
-from transformers import AutoConfig, AutoTokenizer, AutoModelForTokenClassification, AdamW, \
+from transformers import AdamW, AutoConfig, AutoModelForTokenClassification, AutoTokenizer, \
     get_linear_schedule_with_warmup
+from transformers.models.longformer.modeling_longformer import LongformerForTokenClassification
 
 from daseg.data import NEW_TURN
 from daseg.dataloaders.transformers import pad_array
@@ -17,7 +17,7 @@ from daseg.metrics import as_tensors, compute_sklearn_metrics
 
 
 class DialogActTransformer(pl.LightningModule):
-    def __init__(self, labels: List[str], model_name_or_path: str):
+    def __init__(self, labels: List[str], model_name_or_path: str, pretrained: bool = True):
         super().__init__()
         self.save_hyperparameters()
         self.pad_token_label_id = CrossEntropyLoss().ignore_index
@@ -31,11 +31,14 @@ class DialogActTransformer(pl.LightningModule):
         )
         self.tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
         self.tokenizer.add_special_tokens({'additional_special_tokens': [NEW_TURN]})
-        self.model = AutoModelForTokenClassification.from_pretrained(
-            model_name_or_path,
-            from_tf='.ckpt' in model_name_or_path,
-            config=self.config
-        )
+        if pretrained:
+            self.model = AutoModelForTokenClassification.from_pretrained(
+                model_name_or_path,
+                from_tf='.ckpt' in model_name_or_path,
+                config=self.config
+            )
+        else:
+            self.model = LongformerForTokenClassification(self.config)
         self.model.resize_token_embeddings(len(self.tokenizer))
 
     def forward(self, **inputs):

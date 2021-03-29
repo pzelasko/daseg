@@ -53,6 +53,33 @@ class TransformerModel:
             device=device
         )
 
+    @staticmethod
+    def from_pl_checkpoint(path: Path, device: str = 'cpu'):
+        """
+        Works around incompatibility of my old pretrained models with
+        the latest huggingface transformers version.
+        """
+        from daseg.models.transformer_pl import DialogActTransformer
+
+        ckpt = torch.load(path, map_location='cpu')
+        labels = ckpt['hyper_parameters']['labels']
+        mname = ckpt['hyper_parameters']['model_name_or_path']
+
+        # Create a model but do not try to populate the weights with pretrained transformers
+        # as that will fail due to incompatibilities of my code and their latest checkpoints.
+        pl_model = DialogActTransformer(labels, mname, pretrained=False)
+        # We have to manually add position ids to the state dict in the same way as transformers lib does...
+        ckpt['state_dict']['model.longformer.embeddings.position_ids'] = \
+            torch.arange(pl_model.config.max_position_embeddings).expand((1, -1))
+        # Remove extra keys that are no longer needed...
+        for k in ["model.longformer.pooler.dense.weight", "model.longformer.pooler.dense.bias"]:
+            del ckpt['state_dict'][k]
+        # Manually load the state dict
+        pl_model.load_state_dict(ckpt['state_dict'])
+
+        # Voila
+        return TransformerModel(model=pl_model.model, tokenizer=pl_model.tokenizer, device=device)
+
     def __init__(self, model: nn.Module, tokenizer: PreTrainedTokenizer, device: str):
         self.tokenizer = tokenizer
         self.model = model.to(device).eval()
