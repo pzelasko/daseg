@@ -22,7 +22,6 @@ from daseg.dataloaders.transformers import pad_list_of_arrays, to_transformers_e
 from daseg.metrics import compute_original_zhao_kawahara_metrics, compute_seqeval_metrics, compute_sklearn_metrics, \
     compute_zhao_kawahara_metrics
 from daseg.models.longformer_model import LongformerForTokenClassification
-from daseg.models.transformer_pl import DialogActTransformer
 
 __all__ = ['TransformerModel']
 
@@ -31,8 +30,7 @@ class TransformerModel:
     @staticmethod
     def from_path(model_path: Path, device: str = 'cpu'):
         try:
-            pl_model = DialogActTransformer.load_from_checkpoint(str(model_path), map_location=device)
-            model, tokenizer = pl_model.model, pl_model.tokenizer
+            return TransformerModel.from_pl_checkpoint(model_path, device)
         except:
             if 'longformer' in str(model_path):
                 # This is because we started training Longformer models before they were a part of HF repo;
