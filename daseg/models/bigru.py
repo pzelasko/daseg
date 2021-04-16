@@ -9,7 +9,8 @@ from torch import nn
 from torch.nn import CrossEntropyLoss
 
 from daseg.conversion import joint_coding_predictions_to_corpus
-from daseg.metrics import compute_original_zhao_kawahara_metrics, compute_sklearn_metrics, compute_zhao_kawahara_metrics
+from daseg.metrics import compute_original_zhao_kawahara_metrics, compute_segeval_metrics, compute_sklearn_metrics, \
+    compute_zhao_kawahara_metrics
 
 
 class ZhaoKawaharaBiGru(pl.LightningModule):
@@ -193,6 +194,11 @@ class ZhaoKawaharaBiGru(pl.LightningModule):
             pred_dataset=pred_dataset
         )
         metrics.update({k: results[k] for k in ('micro_f1', 'macro_f1')})
+
+        # Pk and B metrics
+        metrics.update(compute_segeval_metrics(
+            true_dataset=true_dataset, pred_dataset=pred_dataset)
+        )
 
         # We show the metrics obtained with Zhao-Kawahara code which computes them differently
         # (apparently the segment insertion errors are not counted)

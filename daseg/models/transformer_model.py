@@ -19,7 +19,8 @@ from transformers import (AutoModelForTokenClassification, AutoTokenizer, Longfo
 from daseg.conversion import predictions_to_dataset
 from daseg.data import DialogActCorpus
 from daseg.dataloaders.transformers import pad_list_of_arrays, to_transformers_eval_dataloader
-from daseg.metrics import compute_original_zhao_kawahara_metrics, compute_seqeval_metrics, compute_sklearn_metrics, \
+from daseg.metrics import compute_original_zhao_kawahara_metrics, compute_segeval_metrics, compute_seqeval_metrics, \
+    compute_sklearn_metrics, \
     compute_zhao_kawahara_metrics
 from daseg.models.longformer_model import LongformerForTokenClassification
 
@@ -180,8 +181,10 @@ class TransformerModel:
                 # (apparently the segment insertion errors are not counted)
                 "ORIGINAL_zhao_kawahara_metrics": compute_original_zhao_kawahara_metrics(
                     true_turns=out_label_list, pred_turns=preds_list
-                )
+                ),
             })
+            # Pk and B metrics
+
         if isinstance(dataset, DialogActCorpus):
             if use_turns:
                 dataset = DialogActCorpus(dialogues={str(i): turn for i, turn in enumerate(dataset.turns)})
@@ -193,6 +196,9 @@ class TransformerModel:
             )
             if compute_metrics:
                 results["zhao_kawahara_metrics"] = compute_zhao_kawahara_metrics(
+                    true_dataset=dataset, pred_dataset=results['dataset']
+                )
+                results["segeval_metrics"] = compute_segeval_metrics(
                     true_dataset=dataset, pred_dataset=results['dataset']
                 )
 

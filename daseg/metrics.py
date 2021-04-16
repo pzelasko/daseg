@@ -55,6 +55,26 @@ def compute_seqeval_metrics(true_labels: List[List[str]], predictions: List[List
     }
 
 
+def compute_segeval_metrics(true_dataset: DialogActCorpus, pred_dataset: DialogActCorpus):
+    from statistics import mean
+    from segeval.data import Dataset
+    from segeval import boundary_similarity, pk
+
+    true_segments = Dataset({
+        cid: {'ref': [len(fs.text.split()) for fs in call]}
+        for cid, call in true_dataset.dialogues.items()
+    })
+    pred_segments = Dataset({
+        cid: {'hyp': [len(fs.text.split()) for fs in call]}
+        for cid, call in pred_dataset.dialogues.items()
+    })
+
+    return {
+        'pk': float(mean(pk(true_segments, pred_segments).values())),
+        'B': float(mean(boundary_similarity(true_segments, pred_segments).values()))
+    }
+
+
 def compute_zhao_kawahara_metrics_levenshtein(true_dataset: DialogActCorpus, pred_dataset: DialogActCorpus):
     """
     Source:
