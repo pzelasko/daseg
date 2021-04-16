@@ -8,8 +8,7 @@ import torch
 from torch.nn.modules.loss import CrossEntropyLoss
 from torch.utils.data.dataloader import DataLoader
 from transformers import AdamW, AutoConfig, AutoModelForTokenClassification, AutoTokenizer, \
-    get_linear_schedule_with_warmup
-from transformers.models.longformer.modeling_longformer import LongformerForTokenClassification
+    MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING, get_linear_schedule_with_warmup
 
 from daseg.data import NEW_TURN
 from daseg.dataloaders.transformers import pad_array
@@ -38,7 +37,8 @@ class DialogActTransformer(pl.LightningModule):
                 config=self.config
             )
         else:
-            self.model = LongformerForTokenClassification(self.config)
+            model_class = MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING[type(self.config)]
+            self.model = model_class(self.config)
         self.model.resize_token_embeddings(len(self.tokenizer))
 
     def forward(self, **inputs):
