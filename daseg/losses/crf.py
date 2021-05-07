@@ -6,31 +6,50 @@ from torch import Tensor, nn
 
 
 class CRFLoss(nn.Module):
+    """
+    Conditional Random Field loss implemented with K2 library. It supports GPU computation.
+
+    Currently, this loss assumes specific topologies for dialog acts/punctuation labeling.
+    """
+
     def __init__(self, label_set: List[str]):
         super().__init__()
         self.label_set = label_set
-        self.den = make_topology(label_set, shared=True)
+        self.den = make_denominator(label_set, shared=True)
         self.den_scores = nn.Parameter(self.den.scores.clone(), requires_grad=True)
 
     def forward(self, log_probs: Tensor, input_lens: Tensor, labels: Tensor):
+        # (batch, seqlen, classes)
         posteriors = k2.DenseFsaVec(
             log_probs,
             supervision_segments=make_segments(input_lens)
         )
+        # (fsavec)
         nums = make_numerator(labels, input_lens)
         self.den.set_scores_stochastic_(self.den_scores)
 
+        # (fsavec)
         num_lattices = k2.intersect_dense(nums, posteriors, output_beam=10.0)
         den_lattice = k2.intersect_dense(self.den, posteriors, output_beam=10.0)
 
-        num_score = num_lattices.get_tot_scores(use_double_scores=True, log_semiring=True).sum()
-        den_score = den_lattice.get_tot_scores(use_double_scores=True, log_semiring=True).sum()
+        # (batch,)
+        num_scores = num_lattices.get_tot_scores(use_double_scores=True, log_semiring=True)
+        den_scores = den_lattice.get_tot_scores(use_double_scores=True, log_semiring=True)
 
-        loss = num_score - den_score
+        # (scalar)
+        loss = (num_scores - den_scores).sum()
         return loss
 
 
 def make_symbol_table(label_set: List[str], shared: bool = True) -> k2.SymbolTable:
+    """
+    Creates a symbol table given a list of classes (e.g. dialog acts, punctuation, etc.).
+    It adds extra symbols:
+    - 'O' which is used to indicate special tokens such as <TURN>
+    - (when shared=True) 'I-' which is the "in-the-middle" symbol shared between all classes
+    - (when shared=False) 'I-<class>' which is the "in-the-middle" symbol,
+        specific for each class (N x classes -> N x I- symbols)
+    """
     symtab = k2.SymbolTable()
     symtab.add('O')
     if shared:
@@ -43,6 +62,11 @@ def make_symbol_table(label_set: List[str], shared: bool = True) -> k2.SymbolTab
 
 
 def make_numerator(labels: Tensor, input_lens: Tensor) -> k2.Fsa:
+    """
+    Creates a numerator supervision FSA.
+    It simply encodes the ground truth label sequence and allows no leeway.
+    Returns a :class:`k2.FsaVec` with FSAs of differing length.
+    """
     assert labels.size(0) == input_lens.size(0)
     assert len(labels.shape) == 2
     assert len(input_lens.shape) == 1
@@ -52,7 +76,24 @@ def make_numerator(labels: Tensor, input_lens: Tensor) -> k2.Fsa:
     return nums
 
 
-def make_topology(label_set: List[str], shared: bool = True) -> k2.Fsa:
+def make_denominator(label_set: List[str], shared: bool = True) -> k2.Fsa:
+    """
+    Creates a "simple" denominator that encodes all possible transitions
+    given the input label set.
+
+    The labeling scheme is assumed to be IE with joint coding, e.g.:
+
+        Here I am.~~~~~~ How are you today?~~
+        I~~~ I Statement I~~ I~~ I~~ Question
+
+    Or without joint coding:
+
+        Here~~~~~~~ I~~~~~~~~~~ am.~~~~~~ How~~~~~~~ are~~~~~~~ you~~~~~~~ today?~~
+        I-Statement I-Statement Statement I-Question I-Question I-Question Question
+
+    When shared=True, it uses a shared "in-the-middle" label for all classes;
+    otherwise each class has a separate one.
+    """
     symtab = make_symbol_table(label_set, shared=shared)
 
     """
@@ -105,6 +146,10 @@ def make_topology(label_set: List[str], shared: bool = True) -> k2.Fsa:
 
 
 def make_segments(input_lens: Tensor) -> Tensor:
+    """
+    Creates a supervision segments tensor that indicates for each batch example,
+    at which index the example has started, and how many tokens it has.
+    """
     bs = input_lens.size(0)
     return torch.stack([
         torch.arange(bs, dtype=torch.int32),
