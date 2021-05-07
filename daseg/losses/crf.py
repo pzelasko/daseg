@@ -12,11 +12,11 @@ class CRFLoss(nn.Module):
     Currently, this loss assumes specific topologies for dialog acts/punctuation labeling.
     """
 
-    def __init__(self, label_set: List[str]):
+    def __init__(self, label_set: List[str], trainable_transition_scores: bool = True):
         super().__init__()
         self.label_set = label_set
         self.den = make_denominator(label_set, shared=True)
-        self.den_scores = nn.Parameter(self.den.scores.clone(), requires_grad=True)
+        self.den_scores = nn.Parameter(self.den.scores.clone(), requires_grad=trainable_transition_scores)
 
     def forward(self, log_probs: Tensor, input_lens: Tensor, labels: Tensor):
         # (batch, seqlen, classes)
