@@ -203,6 +203,7 @@ def prepare_exp(
 @click.option('-r', '--random-seed', default=1050, type=int)
 @click.option('-g', '--num-gpus', default=0, type=int)
 @click.option('-f', '--fp16', is_flag=True)
+@click.option('--crf/--no-crf', default=False)
 def train_transformer(
         exp_dir: Path,
         model_name_or_path: str,
@@ -212,7 +213,8 @@ def train_transformer(
         gradient_accumulation_steps: int,
         random_seed: int,
         num_gpus: int,
-        fp16: bool
+        fp16: bool,
+        crf: bool
 ):
     pl.seed_everything(random_seed)
     output_path = Path(exp_dir)
@@ -220,7 +222,7 @@ def train_transformer(
         datasets: Dict[str, Dataset] = pickle.load(f)
     with open(output_path / 'labels.pkl', 'rb') as f:
         labels: List[str] = pickle.load(f)
-    model = DialogActTransformer(labels=labels, model_name_or_path=model_name_or_path)
+    model = DialogActTransformer(labels=labels, model_name_or_path=model_name_or_path, crf=crf)
     loaders = {
         key: to_dataloader(
             dset,

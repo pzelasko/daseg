@@ -28,12 +28,13 @@ class DialogActTransformer(pl.LightningModule):
         self.save_hyperparameters()
         self.pad_token_label_id = CrossEntropyLoss().ignore_index
         self.labels = labels
+        self.label2id = {label: i for i, label in enumerate(self.labels)}
         self.num_labels = len(self.labels)
         self.config = AutoConfig.from_pretrained(
             model_name_or_path,
             num_labels=self.num_labels,
             id2label={str(i): label for i, label in enumerate(self.labels)},
-            label2id={label: i for i, label in enumerate(self.labels)},
+            label2id=self.label2id
         )
         self.tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
         self.tokenizer.add_special_tokens({'additional_special_tokens': [NEW_TURN]})
@@ -48,7 +49,7 @@ class DialogActTransformer(pl.LightningModule):
             self.model = model_class(self.config)
         self.model.resize_token_embeddings(len(self.tokenizer))
         if crf:
-            self.crf = CRFLoss(list(set(labels) - {'O', 'I-'}))
+            self.crf = CRFLoss(self.labels, self.label2id)
         else:
             self.crf = None
 

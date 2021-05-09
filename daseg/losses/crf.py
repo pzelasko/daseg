@@ -1,4 +1,4 @@
-from typing import List
+from typing import Dict, List
 
 import k2
 import torch
@@ -12,10 +12,16 @@ class CRFLoss(nn.Module):
     Currently, this loss assumes specific topologies for dialog acts/punctuation labeling.
     """
 
-    def __init__(self, label_set: List[str], trainable_transition_scores: bool = True):
+    def __init__(
+            self,
+            label_set: List[str],
+            label2id: Dict[str, int],
+            trainable_transition_scores: bool = True
+    ):
         super().__init__()
         self.label_set = label_set
-        self.den = make_denominator(label_set, shared=True)
+        self.label2id = label2id
+        self.den = make_denominator(label_set, label2id, shared=True)
         self.den_scores = nn.Parameter(self.den.scores.clone(), requires_grad=trainable_transition_scores)
 
     def forward(self, log_probs: Tensor, input_lens: Tensor, labels: Tensor):
@@ -41,7 +47,7 @@ class CRFLoss(nn.Module):
         return loss
 
 
-def make_symbol_table(label_set: List[str], shared: bool = True) -> k2.SymbolTable:
+def make_symbol_table(label_set: List[str], label2id: Dict[str, int], shared: bool = True) -> k2.SymbolTable:
     """
     Creates a symbol table given a list of classes (e.g. dialog acts, punctuation, etc.).
     It adds extra symbols:
@@ -51,13 +57,13 @@ def make_symbol_table(label_set: List[str], shared: bool = True) -> k2.SymbolTab
         specific for each class (N x classes -> N x I- symbols)
     """
     symtab = k2.SymbolTable()
-    symtab.add('O')
+    symtab.add('O', label2id['O'])
     if shared:
-        symtab.add('I-')
+        symtab.add('I-', label2id['I-'])
     for l in label_set:
-        symtab.add(l)
+        symtab.add(l, label2id[l])
         if not shared:
-            symtab.add(f'I-{l}')
+            symtab.add(f'I-{l}', label2id[f'I-{l}'])
     return symtab
 
 
@@ -76,7 +82,7 @@ def make_numerator(labels: Tensor, input_lens: Tensor) -> k2.Fsa:
     return nums
 
 
-def make_denominator(label_set: List[str], shared: bool = True) -> k2.Fsa:
+def make_denominator(label_set: List[str], label2id: Dict[str, int], shared: bool = True) -> k2.Fsa:
     """
     Creates a "simple" denominator that encodes all possible transitions
     given the input label set.
@@ -94,7 +100,7 @@ def make_denominator(label_set: List[str], shared: bool = True) -> k2.Fsa:
     When shared=True, it uses a shared "in-the-middle" label for all classes;
     otherwise each class has a separate one.
     """
-    symtab = make_symbol_table(label_set, shared=shared)
+    symtab = make_symbol_table(label_set, label2id, shared=shared)
 
     """
     shared=True
