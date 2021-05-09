@@ -49,7 +49,7 @@ class DialogActTransformer(pl.LightningModule):
             self.model = model_class(self.config)
         self.model.resize_token_embeddings(len(self.tokenizer))
         if crf:
-            self.crf = CRFLoss(self.labels, self.label2id)
+            self.crf = CRFLoss([l for l in self.labels if l != 'O' and not l.startswith('I-')], self.label2id)
         else:
             self.crf = None
 
