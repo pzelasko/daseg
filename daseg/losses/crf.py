@@ -26,10 +26,9 @@ class CRFLoss(nn.Module):
 
     def forward(self, log_probs: Tensor, input_lens: Tensor, labels: Tensor):
         # (batch, seqlen, classes)
-        posteriors = k2.DenseFsaVec(
-            log_probs,
-            supervision_segments=make_segments(input_lens)
-        )
+        supervision_segments=make_segments(input_lens)
+        posteriors = k2.DenseFsaVec(log_probs, supervision_segments)
+
         # (fsavec)
         nums = make_numerator(labels, input_lens)
         self.den.set_scores_stochastic_(self.den_scores)
@@ -77,7 +76,7 @@ def make_numerator(labels: Tensor, input_lens: Tensor) -> k2.Fsa:
     assert len(labels.shape) == 2
     assert len(input_lens.shape) == 1
     nums = k2.create_fsa_vec([
-        k2.linear_fsa(l[:llen]) for l, llen in zip(labels, input_lens)
+        k2.linear_fsa(l[:llen].tolist()) for l, llen in zip(labels, input_lens)
     ])
     return nums
 
@@ -161,4 +160,4 @@ def make_segments(input_lens: Tensor) -> Tensor:
         torch.arange(bs, dtype=torch.int32),
         torch.zeros(bs, dtype=torch.int32),
         input_lens.cpu().to(torch.int32)
-    ])
+    ], dim=1)
