@@ -140,7 +140,7 @@ def make_denominator(label_set: List[str], shared: bool = True) -> k2.Fsa:
         s += [f'1 0 {symtab[label]} 0.0']
     s += ['0 2 -1 0.0', '2']
     s.sort()
-    fsa = k2.Fsa.from_str(s)
+    fsa = k2.Fsa.from_str('\n'.join(s))
     fsa.symbols = symtab
     return fsa
 
