@@ -12,11 +12,18 @@ from transformers import AdamW, AutoConfig, AutoModelForTokenClassification, Aut
 
 from daseg.data import NEW_TURN
 from daseg.dataloaders.transformers import pad_array
+from daseg.losses.crf import CRFLoss
 from daseg.metrics import as_tensors, compute_sklearn_metrics
 
 
 class DialogActTransformer(pl.LightningModule):
-    def __init__(self, labels: List[str], model_name_or_path: str, pretrained: bool = True):
+    def __init__(
+            self,
+            labels: List[str],
+            model_name_or_path: str,
+            pretrained: bool = True,
+            crf: bool = False
+    ):
         super().__init__()
         self.save_hyperparameters()
         self.pad_token_label_id = CrossEntropyLoss().ignore_index
@@ -40,6 +47,10 @@ class DialogActTransformer(pl.LightningModule):
             model_class = MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING[type(self.config)]
             self.model = model_class(self.config)
         self.model.resize_token_embeddings(len(self.tokenizer))
+        if crf:
+            self.crf = CRFLoss(list(set(labels) - {'O', 'I-'}))
+        else:
+            self.crf = None
 
     def forward(self, **inputs):
         return self.model(**inputs)
@@ -53,7 +64,10 @@ class DialogActTransformer(pl.LightningModule):
             )  # XLM and RoBERTa don"t use token_type_ids
 
         outputs = self(**inputs)
-        loss = outputs[0]
+        loss, logits = outputs[:2]
+        if self.crf is not None:
+            log_probs = torch.nn.functional.log_softmax(logits)
+            loss = -self.crf(log_probs)
         tensorboard_logs = {"loss": loss}
         return {"loss": loss, "log": tensorboard_logs}
 
@@ -66,10 +80,13 @@ class DialogActTransformer(pl.LightningModule):
                 batch[2] if self.config.model_type in ["bert", "xlnet"] else None
             )  # XLM and RoBERTa don"t use token_type_ids
         outputs = self(**inputs)
-        tmp_eval_loss, logits = outputs[:2]
+        loss, logits = outputs[:2]
+        if self.crf is not None:
+            log_probs = torch.nn.functional.log_softmax(logits)
+            loss = -self.crf(log_probs)
         preds = logits.detach().cpu().numpy()
-        out_label_ids = inputs["labels"].detach().cpu().numpy()
-        return {"val_loss": tmp_eval_loss.detach().cpu(), "pred": preds, "target": out_label_ids}
+        out_label_ids = inputs["labels"]
+        return {"val_loss": loss, "pred": preds, "target": out_label_ids}
 
     def test_step(self, batch, batch_nb):
         return self.validation_step(batch, batch_nb)

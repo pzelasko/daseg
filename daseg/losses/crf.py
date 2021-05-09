@@ -124,21 +124,21 @@ def make_denominator(label_set: List[str], shared: bool = True) -> k2.Fsa:
     2
     """
 
-    s = [f'0 0 {symtab["O"]}']
+    s = [f'0 0 {symtab["O"]} 0.0']
     if shared:
         s += [
-            f'0 1 {symtab["I-"]}',
-            f'1 1 {symtab["I-"]}'
+            f'0 1 {symtab["I-"]} 0.0',
+            f'1 1 {symtab["I-"]} 0.0'
         ]
     for idx, label in enumerate(label_set):
-        s += [f'0 0 {symtab[label]}']
+        s += [f'0 0 {symtab[label]} 0.0']
         if not shared:
             s += [
-                f'0 1 {symtab["I-" + label]}'
-                f'1 1 {symtab["I-" + label]}'
+                f'0 1 {symtab["I-" + label]} 0.0'
+                f'1 1 {symtab["I-" + label]} 0.0'
             ]
-        s += [f'1 0 {symtab[label]}']
-    s += ['0 2 -1', '2']
+        s += [f'1 0 {symtab[label]} 0.0']
+    s += ['0 2 -1 0.0', '2']
     s.sort()
     fsa = k2.Fsa.from_str(s)
     fsa.symbols = symtab
