@@ -56,7 +56,7 @@ def make_symbol_table(label_set: List[str], label2id: Dict[str, int], shared: bo
         specific for each class (N x classes -> N x I- symbols)
     """
     symtab = k2.SymbolTable()
-    symtab.add('O', label2id['O'])
+    # symtab.add('O', label2id['O'])
     if shared:
         symtab.add('I-', label2id['I-'])
     for l in label_set:
