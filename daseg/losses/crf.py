@@ -129,7 +129,8 @@ def make_denominator(label_set: List[str], label2id: Dict[str, int], shared: boo
     2
     """
 
-    s = [f'0 0 {symtab["O"]} 0.0']
+    # s = [f'0 0 {symtab["O"]} 0.0']
+    s = [f'0 0 {symtab["<eps>"]} 0.0']
     if shared:
         s += [
             f'0 1 {symtab["I-"]} 0.0',
