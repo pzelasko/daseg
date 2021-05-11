@@ -185,10 +185,11 @@ def truncate_padding_collate_fn(batch: List[List[torch.Tensor]], padding_at_star
     if padding_at_start:
         return [t[:, -redundant_padding:] for t in concat_tensors]
     truncated = [t[:, :redundant_padding] for t in concat_tensors]
-    # Here we add extra tensor that states the input lens
-    truncated.append(
-        truncated[0].new_tensor([mask.sum() for _, mask, _, _ in truncated])
-    )
+    if add_ilen:
+        # Here we add extra tensor that states the input lens
+        truncated.append(
+            truncated[0].new_tensor(truncated[1].sum(dim=1))
+        )
     return truncated
 
 
