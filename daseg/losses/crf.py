@@ -1,3 +1,4 @@
+import dataclasses
 from typing import Dict, List
 
 import k2

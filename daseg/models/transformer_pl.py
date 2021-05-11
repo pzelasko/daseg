@@ -63,12 +63,12 @@ class DialogActTransformer(pl.LightningModule):
             inputs["token_type_ids"] = (
                 batch[2] if self.config.model_type in ["bert", "xlnet"] else None
             )  # XLM and RoBERTa don"t use token_type_ids
-
         outputs = self(**inputs)
         loss, logits = outputs[:2]
         if self.crf is not None:
             log_probs = torch.nn.functional.log_softmax(logits)
-            loss = -self.crf(log_probs)
+            labels, ilens = batch[3], batch[4]
+            loss = -self.crf(log_probs, ilens, labels)
         tensorboard_logs = {"loss": loss}
         return {"loss": loss, "log": tensorboard_logs}
 
@@ -84,7 +84,8 @@ class DialogActTransformer(pl.LightningModule):
         loss, logits = outputs[:2]
         if self.crf is not None:
             log_probs = torch.nn.functional.log_softmax(logits)
-            loss = -self.crf(log_probs)
+            labels, ilens = batch[3], batch[4]
+            loss = -self.crf(log_probs, ilens, labels)
         preds = logits.detach().cpu().numpy()
         out_label_ids = inputs["labels"]
         return {"val_loss": loss, "pred": preds, "target": out_label_ids}
