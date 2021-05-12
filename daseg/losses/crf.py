@@ -1,4 +1,3 @@
-import dataclasses
 from typing import Dict, List
 
 import k2
@@ -133,7 +132,8 @@ def make_denominator(label_set: List[str], label2id: Dict[str, int], shared: boo
     """
 
     # s = [f'0 0 {symtab["O"]} 0.0']
-    s = [f'0 0 {symtab["<eps>"]} 0.0']
+    # s = [f'0 0 {symtab["<eps>"]} 0.0']
+    s = []
     if shared:
         s += [
             f'0 1 {symtab["I-"]} 0.0',
