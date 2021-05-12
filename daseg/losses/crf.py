@@ -22,28 +22,30 @@ class CRFLoss(nn.Module):
         super().__init__()
         self.label_set = label_set
         self.label2id = label2id
-        self.den = make_denominator(label_set, label2id, shared=True)
-        self.den_scores = nn.Parameter(self.den.scores.clone(), requires_grad=trainable_transition_scores)
+        #self.den = make_denominator(label_set, label2id, shared=True).to('cuda')
+        #self.den_scores = nn.Parameter(self.den.scores.clone(), requires_grad=trainable_transition_scores).to('cuda')
 
     def forward(self, log_probs: Tensor, input_lens: Tensor, labels: Tensor):
         # (batch, seqlen, classes)
-        supervision_segments=make_segments(input_lens)
+        #supervision_segments=make_segments(input_lens)
+        supervision_segments=make_segments(labels)
         posteriors = k2.DenseFsaVec(log_probs, supervision_segments)
 
         # (fsavec)
-        nums = make_numerator(labels, input_lens)
-        self.den.set_scores_stochastic_(self.den_scores)
+        nums = make_numerator(labels, input_lens).to(log_probs.device)
+        #self.den.set_scores_stochastic_(self.den_scores)
 
         # (fsavec)
         num_lattices = k2.intersect_dense(nums, posteriors, output_beam=10.0)
-        den_lattice = k2.intersect_dense(self.den, posteriors, output_beam=10.0)
+        #den_lattice = k2.intersect_dense(self.den, posteriors, output_beam=10.0)
 
         # (batch,)
         num_scores = num_lattices.get_tot_scores(use_double_scores=True, log_semiring=True)
-        den_scores = den_lattice.get_tot_scores(use_double_scores=True, log_semiring=True)
+        #den_scores = den_lattice.get_tot_scores(use_double_scores=True, log_semiring=True)
 
         # (scalar)
-        loss = (num_scores - den_scores).sum()
+        #loss = (num_scores - den_scores).sum() / log_probs.size(0)
+        loss = num_scores.sum()
         return loss
 
 
@@ -77,7 +79,7 @@ def make_numerator(labels: Tensor, input_lens: Tensor) -> k2.Fsa:
     assert len(labels.shape) == 2
     assert len(input_lens.shape) == 1
     nums = k2.create_fsa_vec([
-        k2.linear_fsa(l[:llen].tolist()) for l, llen in zip(labels, input_lens)
+        k2.linear_fsa(l[l != -100].tolist()) for l, llen in zip(labels, input_lens)
     ])
     return nums
 
@@ -152,14 +154,16 @@ def make_denominator(label_set: List[str], label2id: Dict[str, int], shared: boo
     return fsa
 
 
-def make_segments(input_lens: Tensor) -> Tensor:
+def make_segments(labels: Tensor) -> Tensor:
     """
     Creates a supervision segments tensor that indicates for each batch example,
     at which index the example has started, and how many tokens it has.
     """
-    bs = input_lens.size(0)
+    #bs = input_lens.size(0)
+    bs = labels.size(0)
     return torch.stack([
         torch.arange(bs, dtype=torch.int32),
-        torch.zeros(bs, dtype=torch.int32),
-        input_lens.cpu().to(torch.int32)
-    ], dim=1)
+        torch.ones(bs, dtype=torch.int32),  # start at one because of [BOS]
+        (labels != -100).to(torch.int32).sum(dim=1).cpu()
+        #input_lens.cpu().to(torch.int32) - 3  # subtract one for [BOS] and two for [CLS] and [EOS]
+    ], dim=1).to(torch.int32)

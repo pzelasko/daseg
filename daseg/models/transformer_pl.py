@@ -69,7 +69,11 @@ class DialogActTransformer(pl.LightningModule):
             log_probs = torch.nn.functional.log_softmax(logits)
             labels, ilens = batch[3], batch[4]
             loss = -self.crf(log_probs, ilens, labels)
-        tensorboard_logs = {"loss": loss}
+            batch_size = log_probs.size(0)
+            num_tokens = batch[1].sum()
+            tensorboard_logs = {"loss": loss * batch_size / num_tokens}
+        else:
+            tensorboard_logs = {"loss": loss}
         return {"loss": loss, "log": tensorboard_logs}
 
     def validation_step(self, batch, batch_nb):
@@ -194,6 +198,9 @@ class DialogActTransformer(pl.LightningModule):
 def pad_outputs(outputs: Dict) -> Dict:
     max_out_len = max(x["pred"].shape[1] for x in outputs)
     for x in outputs:
+        for k in ['pred', 'target']:
+            if isinstance(x[k], torch.Tensor):
+                x[k] = x[k].cpu().numpy()
         x["pred"] = pad_array(x["pred"], target_len=max_out_len, value=0)
         x["target"] = pad_array(x["target"], target_len=max_out_len, value=CrossEntropyLoss().ignore_index)
     return outputs

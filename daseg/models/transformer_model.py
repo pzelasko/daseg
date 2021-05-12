@@ -73,7 +73,8 @@ class TransformerModel:
                 torch.arange(pl_model.config.max_position_embeddings).expand((1, -1))
             # Remove extra keys that are no longer needed...
             for k in ["model.longformer.pooler.dense.weight", "model.longformer.pooler.dense.bias"]:
-                del ckpt['state_dict'][k]
+                if k in ckpt['state_dict']:
+                    del ckpt['state_dict'][k]
         # Manually load the state dict
         pl_model.load_state_dict(ckpt['state_dict'])
 
