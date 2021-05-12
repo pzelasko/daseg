@@ -16,39 +16,54 @@ class CRFLoss(nn.Module):
             self,
             label_set: List[str],
             label2id: Dict[str, int],
-            trainable_transition_scores: bool = True
+            trainable_transition_scores: bool = False
     ):
         super().__init__()
         self.label_set = label_set
         self.label2id = label2id
-        #self.den = make_denominator(label_set, label2id, shared=True).to('cuda')
-        #self.den_scores = nn.Parameter(self.den.scores.clone(), requires_grad=trainable_transition_scores).to('cuda')
+        self.den = make_denominator(label_set, label2id, shared=True).to('cuda')
+        self.den_scores = nn.Parameter(self.den.scores.clone(), requires_grad=trainable_transition_scores).to('cuda')
 
     def forward(self, log_probs: Tensor, input_lens: Tensor, labels: Tensor):
+        global it
         # (batch, seqlen, classes)
-        # supervision_segments=make_segments(input_lens)
         supervision_segments = make_segments(labels)
         posteriors = k2.DenseFsaVec(log_probs, supervision_segments)
 
         # (fsavec)
         nums = make_numerator(labels).to(log_probs.device)
-        print('nums.shape', nums.shape)
-        print('nums->num_arcs', [nums[0].num_arcs for i in range(nums.shape[0])])
-        print('segments', supervision_segments)
-        # self.den.set_scores_stochastic_(self.den_scores)
+        for i in range(nums.shape[0]):
+            # The supervision has to have exactly the same number of arcs as the number of tokens
+            # which contain labels to score, plus one extra arc for k2's special end-of-fst arc.
+            assert nums[i].num_arcs == supervision_segments[i, 2] + 1
+        self.den.set_scores_stochastic_(self.den_scores)
+
+        if it % 100 == 0:
+            for i in range(min(3, labels.size(0))):
+                print('*' * 120)
+                print('log_probs.shape', log_probs.shape)
+                print(f'labels[{i}][:20] = ', labels[i][:20])
+                print(f'labels[{i}][labels[{i}] != -100][:20] = ', labels[i][labels[i] != -100][:20])
+                print(f'nums[{i}].labels[:20] = ', nums[i].labels[:20])
+                print(f'log_probs[{i}][:20] = ', log_probs.argmax(dim=2)[i][:20])
+                print('*' * 120)
+        it += 1
 
         # (fsavec)
         num_lattices = k2.intersect_dense(nums, posteriors, output_beam=10.0)
-        # den_lattice = k2.intersect_dense(self.den, posteriors, output_beam=10.0)
+        den_lattice = k2.intersect_dense(self.den, posteriors, output_beam=10.0)
 
         # (batch,)
         num_scores = num_lattices.get_tot_scores(use_double_scores=True, log_semiring=True)
-        # den_scores = den_lattice.get_tot_scores(use_double_scores=True, log_semiring=True)
+        den_scores = den_lattice.get_tot_scores(use_double_scores=True, log_semiring=True)
 
         # (scalar)
-        #loss = (num_scores - den_scores).sum() / log_probs.size(0)
-        loss = num_scores.sum()
+        num_tokens = (labels != -100).to(torch.int32).sum()
+        loss = (num_scores - den_scores).sum() / num_tokens
+        #loss = num_scores.sum() / (labels != -100).to(torch.int32).sum()
         return loss
+
+it = 0
 
 
 def make_symbol_table(label_set: List[str], label2id: Dict[str, int], shared: bool = True) -> k2.SymbolTable:
@@ -61,6 +76,8 @@ def make_symbol_table(label_set: List[str], label2id: Dict[str, int], shared: bo
         specific for each class (N x classes -> N x I- symbols)
     """
     symtab = k2.SymbolTable()
+    del symtab._sym2id['<eps>']
+    del symtab._id2sym[0]
     if shared:
         symtab.add('I-', label2id['I-'])
     for l in label_set:

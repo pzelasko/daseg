@@ -64,17 +64,19 @@ class DialogActTransformer(pl.LightningModule):
                 batch[2] if self.config.model_type in ["bert", "xlnet"] else None
             )  # XLM and RoBERTa don"t use token_type_ids
         outputs = self(**inputs)
-        loss, logits = outputs[:2]
+        ce_loss, logits = outputs[:2]
         if self.crf is not None:
-            log_probs = torch.nn.functional.log_softmax(logits)
+            log_probs = torch.nn.functional.log_softmax(logits, dim=2)
             labels, ilens = batch[3], batch[4]
-            loss = -self.crf(log_probs, ilens, labels)
-            batch_size = log_probs.size(0)
-            num_tokens = batch[1].sum()
-            tensorboard_logs = {"loss": loss * batch_size / num_tokens}
+            crf_loss = -self.crf(log_probs, ilens, labels)
+            ce_loss = 0.1 * ce_loss
+            loss = crf_loss + ce_loss
+            logs = {"loss": loss, 'crf_loss': crf_loss, 'ce_loss': ce_loss}
         else:
-            tensorboard_logs = {"loss": loss}
-        return {"loss": loss, "log": tensorboard_logs}
+            logs = {"loss": loss}
+        progdict = logs.copy()
+        progdict.pop('loss')
+        return {"loss": loss, "log": logs, 'progress_bar': logs}
 
     def validation_step(self, batch, batch_nb):
         "Compute validation"
@@ -87,7 +89,7 @@ class DialogActTransformer(pl.LightningModule):
         outputs = self(**inputs)
         loss, logits = outputs[:2]
         if self.crf is not None:
-            log_probs = torch.nn.functional.log_softmax(logits)
+            log_probs = torch.nn.functional.log_softmax(logits, dim=2)
             labels, ilens = batch[3], batch[4]
             loss = -self.crf(log_probs, ilens, labels)
         preds = logits.detach().cpu().numpy()
@@ -152,7 +154,7 @@ class DialogActTransformer(pl.LightningModule):
 
     def get_lr_scheduler(self):
         scheduler = get_linear_schedule_with_warmup(
-            self.opt, num_warmup_steps=0, num_training_steps=self.total_steps
+            self.opt, num_warmup_steps=250, num_training_steps=self.total_steps
         )
         scheduler = {"scheduler": scheduler, "interval": "step", "frequency": 1}
         return scheduler
@@ -171,12 +173,14 @@ class DialogActTransformer(pl.LightningModule):
                 "weight_decay": 0.0,
             },
         ]
-        optimizer = AdamW(optimizer_grouped_parameters, lr=5e-5, eps=1e-8)
-        self.opt = optimizer
+        self.opt = AdamW(
+                optimizer_grouped_parameters, 
+                lr=5e-5, 
+                eps=1e-8
+        )
+        self.scheduler = self.get_lr_scheduler()
 
-        scheduler = self.get_lr_scheduler()
-
-        return [optimizer], [scheduler]
+        return [self.opt], [self.scheduler]
 
     def set_output_dir(self, output_dir: Path):
         self.output_dir = Path(output_dir)
