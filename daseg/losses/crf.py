@@ -16,54 +16,93 @@ class CRFLoss(nn.Module):
             self,
             label_set: List[str],
             label2id: Dict[str, int],
-            trainable_transition_scores: bool = False
+            trainable_transition_scores: bool = True,
+            ignore_index: int = -100
     ):
         super().__init__()
         self.label_set = label_set
         self.label2id = label2id
+        self.ignore_index = ignore_index
         self.den = make_denominator(label_set, label2id, shared=True).to('cuda')
-        self.den_scores = nn.Parameter(self.den.scores.clone(), requires_grad=trainable_transition_scores).to('cuda')
+        self.A = create_bigram_lm([self.label2id[l] for l in label_set]).to('cuda')
+        self.A_scores = nn.Parameter(self.A.scores.clone(), requires_grad=trainable_transition_scores).to('cuda')
 
     def forward(self, log_probs: Tensor, input_lens: Tensor, labels: Tensor):
         global it
-        # (batch, seqlen, classes)
+
+        # Determine all relevant shapes - max_seqlen_scored is the longest sequence length of log_probs
+        # after we remove ignored indices.
+        bs, seqlen, nclass = log_probs.shape
+        max_seqlen_scored = (labels[0] != self.ignore_index).sum()
         supervision_segments = make_segments(labels)
-        posteriors = k2.DenseFsaVec(log_probs, supervision_segments)
+
+        log_probs_scored = log_probs.new_zeros(bs, max_seqlen_scored, nclass)
+        assert max_seqlen_scored == supervision_segments[0, 2]
+        for i in range(bs):
+            log_probs_scored[i, :supervision_segments[i, 2], :] = log_probs[i, labels[i] != self.ignore_index, :]
+
+        # (batch, seqlen, classes)
+        posteriors = k2.DenseFsaVec(log_probs_scored, supervision_segments)
 
         # (fsavec)
-        nums = make_numerator(labels).to(log_probs.device)
+        nums = make_numerator(labels)
         for i in range(nums.shape[0]):
             # The supervision has to have exactly the same number of arcs as the number of tokens
             # which contain labels to score, plus one extra arc for k2's special end-of-fst arc.
             assert nums[i].num_arcs == supervision_segments[i, 2] + 1
-        self.den.set_scores_stochastic_(self.den_scores)
+        self.A.set_scores_stochastic_(self.A_scores)
+        nums = k2.intersect(self.A.to('cpu'), nums).to(log_probs.device)
+        for i in range(nums.shape[0]):
+            # The supervision has to have exactly the same number of arcs as the number of tokens
+            # which contain labels to score, plus one extra arc for k2's special end-of-fst arc.
+            assert nums[i].num_arcs == supervision_segments[i, 2] + 1
 
         if it % 100 == 0:
             for i in range(min(3, labels.size(0))):
                 print('*' * 120)
-                print('log_probs.shape', log_probs.shape)
+                print('log_probs_scored.shape', log_probs_scored.shape)
                 print(f'labels[{i}][:20] = ', labels[i][:20])
-                print(f'labels[{i}][labels[{i}] != -100][:20] = ', labels[i][labels[i] != -100][:20])
+                print(f'labels[{i}][labels[{i}] != self.ignore_index][:20] = ', labels[i][labels[i] != self.ignore_index][:20])
                 print(f'nums[{i}].labels[:20] = ', nums[i].labels[:20])
-                print(f'log_probs[{i}][:20] = ', log_probs.argmax(dim=2)[i][:20])
+                print(f'log_probs_scored[{i}][:20] = ', log_probs_scored.argmax(dim=2)[i][:20])
                 print('*' * 120)
         it += 1
 
         # (fsavec)
         num_lattices = k2.intersect_dense(nums, posteriors, output_beam=10.0)
-        den_lattice = k2.intersect_dense(self.den, posteriors, output_beam=10.0)
+        #den_lattice = k2.intersect_dense(self.den, posteriors, output_beam=10.0)
 
         # (batch,)
         num_scores = num_lattices.get_tot_scores(use_double_scores=True, log_semiring=True)
-        den_scores = den_lattice.get_tot_scores(use_double_scores=True, log_semiring=True)
+        #den_scores = den_lattice.get_tot_scores(use_double_scores=True, log_semiring=True)
 
         # (scalar)
-        num_tokens = (labels != -100).to(torch.int32).sum()
-        loss = (num_scores - den_scores).sum() / num_tokens
-        #loss = num_scores.sum() / (labels != -100).to(torch.int32).sum()
+        num_tokens = (labels != self.ignore_index).to(torch.int32).sum()
+        #loss = (num_scores - den_scores).sum() / num_tokens
+        loss = num_scores.sum() / num_tokens
         return loss
 
 it = 0
+
+
+def create_bigram_lm(labels: List[int]) -> k2.Fsa:
+    """
+    Create a bigram LM.
+    The resulting FSA (A) has a start-state and a state for
+    each label 0, 1, 2, ....; and each of the above-mentioned states
+    has a transition to the state for each phone and also to the final-state.
+    """
+    final_state = len(labels) + 1
+    rules = ''
+    for i in range(1, final_state):
+        rules += f'0 {i} {labels[i-1]} 0.0\n'
+
+    for i in range(1, final_state):
+        for j in range(1, final_state):
+            rules += f'{i} {j} {labels[j-1]} 0.0\n'
+        rules += f'{i} {final_state} -1 0.0\n'
+    rules += f'{final_state}'
+    return k2.Fsa.from_str(rules)
 
 
 def make_symbol_table(label_set: List[str], label2id: Dict[str, int], shared: bool = True) -> k2.SymbolTable:

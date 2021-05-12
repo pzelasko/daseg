@@ -69,14 +69,16 @@ class DialogActTransformer(pl.LightningModule):
             log_probs = torch.nn.functional.log_softmax(logits, dim=2)
             labels, ilens = batch[3], batch[4]
             crf_loss = -self.crf(log_probs, ilens, labels)
-            ce_loss = 0.1 * ce_loss
-            loss = crf_loss + ce_loss
+            #ce_loss = 0.1 * ce_loss
+            loss = crf_loss# + ce_loss
+            #loss = ce_loss
             logs = {"loss": loss, 'crf_loss': crf_loss, 'ce_loss': ce_loss}
         else:
+            loss = ce_loss
             logs = {"loss": loss}
         progdict = logs.copy()
         progdict.pop('loss')
-        return {"loss": loss, "log": logs, 'progress_bar': logs}
+        return {"loss": loss, "log": logs, 'progress_bar': progdict}
 
     def validation_step(self, batch, batch_nb):
         "Compute validation"
