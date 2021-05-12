@@ -26,21 +26,24 @@ class CRFLoss(nn.Module):
 
     def forward(self, log_probs: Tensor, input_lens: Tensor, labels: Tensor):
         # (batch, seqlen, classes)
-        #supervision_segments=make_segments(input_lens)
-        supervision_segments=make_segments(labels)
+        # supervision_segments=make_segments(input_lens)
+        supervision_segments = make_segments(labels)
         posteriors = k2.DenseFsaVec(log_probs, supervision_segments)
 
         # (fsavec)
-        nums = make_numerator(labels, input_lens).to(log_probs.device)
-        #self.den.set_scores_stochastic_(self.den_scores)
+        nums = make_numerator(labels).to(log_probs.device)
+        print('nums.shape', nums.shape)
+        print('nums->num_arcs', [nums[0].num_arcs for i in range(nums.shape[0])])
+        print('segments', supervision_segments)
+        # self.den.set_scores_stochastic_(self.den_scores)
 
         # (fsavec)
         num_lattices = k2.intersect_dense(nums, posteriors, output_beam=10.0)
-        #den_lattice = k2.intersect_dense(self.den, posteriors, output_beam=10.0)
+        # den_lattice = k2.intersect_dense(self.den, posteriors, output_beam=10.0)
 
         # (batch,)
         num_scores = num_lattices.get_tot_scores(use_double_scores=True, log_semiring=True)
-        #den_scores = den_lattice.get_tot_scores(use_double_scores=True, log_semiring=True)
+        # den_scores = den_lattice.get_tot_scores(use_double_scores=True, log_semiring=True)
 
         # (scalar)
         #loss = (num_scores - den_scores).sum() / log_probs.size(0)
@@ -58,7 +61,6 @@ def make_symbol_table(label_set: List[str], label2id: Dict[str, int], shared: bo
         specific for each class (N x classes -> N x I- symbols)
     """
     symtab = k2.SymbolTable()
-    # symtab.add('O', label2id['O'])
     if shared:
         symtab.add('I-', label2id['I-'])
     for l in label_set:
@@ -68,18 +70,14 @@ def make_symbol_table(label_set: List[str], label2id: Dict[str, int], shared: bo
     return symtab
 
 
-def make_numerator(labels: Tensor, input_lens: Tensor) -> k2.Fsa:
+def make_numerator(labels: Tensor) -> k2.Fsa:
     """
     Creates a numerator supervision FSA.
     It simply encodes the ground truth label sequence and allows no leeway.
     Returns a :class:`k2.FsaVec` with FSAs of differing length.
     """
-    assert labels.size(0) == input_lens.size(0)
     assert len(labels.shape) == 2
-    assert len(input_lens.shape) == 1
-    nums = k2.create_fsa_vec([
-        k2.linear_fsa(l[l != -100].tolist()) for l, llen in zip(labels, input_lens)
-    ])
+    nums = k2.create_fsa_vec([k2.linear_fsa(lab[lab != -100].tolist()) for lab in labels])
     return nums
 
 
@@ -105,7 +103,6 @@ def make_denominator(label_set: List[str], label2id: Dict[str, int], shared: boo
 
     """
     shared=True
-    0 0 O
     0 0 Statement
     0 0 Question
     0 1 I-
@@ -118,7 +115,6 @@ def make_denominator(label_set: List[str], label2id: Dict[str, int], shared: boo
 
     """
     shared=False
-    0 0 O
     0 0 Statement
     0 0 Question
     0 1 I-Statement
@@ -131,8 +127,6 @@ def make_denominator(label_set: List[str], label2id: Dict[str, int], shared: boo
     2
     """
 
-    # s = [f'0 0 {symtab["O"]} 0.0']
-    # s = [f'0 0 {symtab["<eps>"]} 0.0']
     s = []
     if shared:
         s += [
@@ -159,11 +153,9 @@ def make_segments(labels: Tensor) -> Tensor:
     Creates a supervision segments tensor that indicates for each batch example,
     at which index the example has started, and how many tokens it has.
     """
-    #bs = input_lens.size(0)
     bs = labels.size(0)
     return torch.stack([
         torch.arange(bs, dtype=torch.int32),
-        torch.ones(bs, dtype=torch.int32),  # start at one because of [BOS]
+        torch.zeros(bs, dtype=torch.int32),
         (labels != -100).to(torch.int32).sum(dim=1).cpu()
-        #input_lens.cpu().to(torch.int32) - 3  # subtract one for [BOS] and two for [CLS] and [EOS]
     ], dim=1).to(torch.int32)
