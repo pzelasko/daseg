@@ -1,5 +1,4 @@
 from pathlib import Path
-from pathlib import Path
 from typing import Dict, List
 
 import numpy as np
@@ -12,7 +11,6 @@ from transformers import AdamW, AutoConfig, AutoModelForTokenClassification, Aut
 
 from daseg.data import NEW_TURN
 from daseg.dataloaders.transformers import pad_array
-from daseg.losses.crf import CRFLoss
 from daseg.metrics import as_tensors, compute_sklearn_metrics
 
 
@@ -49,6 +47,7 @@ class DialogActTransformer(pl.LightningModule):
             self.model = model_class(self.config)
         self.model.resize_token_embeddings(len(self.tokenizer))
         if crf:
+            from daseg.losses.crf import CRFLoss
             self.crf = CRFLoss([l for l in self.labels if l != 'O' and not l.startswith('I-')], self.label2id)
         else:
             self.crf = None
