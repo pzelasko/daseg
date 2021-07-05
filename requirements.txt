@@ -3,6 +3,7 @@ cytoolz
 scikit-learn>=0.22
 git+https://github.com/pzelasko/plz
 git+https://github.com/pzelasko/seqeval
+segeval
 Biopython
 transformers>=4.0.0,<=5.0.0
 gluonnlp

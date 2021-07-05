@@ -1,5 +1,4 @@
 from pathlib import Path
-from pathlib import Path
 from typing import Dict, List
 
 import numpy as np
@@ -16,17 +15,24 @@ from daseg.metrics import as_tensors, compute_sklearn_metrics
 
 
 class DialogActTransformer(pl.LightningModule):
-    def __init__(self, labels: List[str], model_name_or_path: str, pretrained: bool = True):
+    def __init__(
+            self,
+            labels: List[str],
+            model_name_or_path: str,
+            pretrained: bool = True,
+            crf: bool = False
+    ):
         super().__init__()
         self.save_hyperparameters()
         self.pad_token_label_id = CrossEntropyLoss().ignore_index
         self.labels = labels
+        self.label2id = {label: i for i, label in enumerate(self.labels)}
         self.num_labels = len(self.labels)
         self.config = AutoConfig.from_pretrained(
             model_name_or_path,
             num_labels=self.num_labels,
             id2label={str(i): label for i, label in enumerate(self.labels)},
-            label2id={label: i for i, label in enumerate(self.labels)},
+            label2id=self.label2id
         )
         self.tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
         self.tokenizer.add_special_tokens({'additional_special_tokens': [NEW_TURN]})
@@ -40,6 +46,11 @@ class DialogActTransformer(pl.LightningModule):
             model_class = MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING[type(self.config)]
             self.model = model_class(self.config)
         self.model.resize_token_embeddings(len(self.tokenizer))
+        if crf:
+            from daseg.losses.crf import CRFLoss
+            self.crf = CRFLoss([l for l in self.labels if l != 'O' and not l.startswith('I-')], self.label2id)
+        else:
+            self.crf = None
 
     def forward(self, **inputs):
         return self.model(**inputs)
@@ -51,11 +62,22 @@ class DialogActTransformer(pl.LightningModule):
             inputs["token_type_ids"] = (
                 batch[2] if self.config.model_type in ["bert", "xlnet"] else None
             )  # XLM and RoBERTa don"t use token_type_ids
-
         outputs = self(**inputs)
-        loss = outputs[0]
-        tensorboard_logs = {"loss": loss}
-        return {"loss": loss, "log": tensorboard_logs}
+        ce_loss, logits = outputs[:2]
+        if self.crf is not None:
+            log_probs = torch.nn.functional.log_softmax(logits, dim=2)
+            labels, ilens = batch[3], batch[4]
+            crf_loss = -self.crf(log_probs, ilens, labels)
+            #ce_loss = 0.1 * ce_loss
+            loss = crf_loss# + ce_loss
+            #loss = ce_loss
+            logs = {"loss": loss, 'crf_loss': crf_loss, 'ce_loss': ce_loss}
+        else:
+            loss = ce_loss
+            logs = {"loss": loss}
+        progdict = logs.copy()
+        progdict.pop('loss')
+        return {"loss": loss, "log": logs, 'progress_bar': progdict}
 
     def validation_step(self, batch, batch_nb):
         "Compute validation"
@@ -66,10 +88,14 @@ class DialogActTransformer(pl.LightningModule):
                 batch[2] if self.config.model_type in ["bert", "xlnet"] else None
             )  # XLM and RoBERTa don"t use token_type_ids
         outputs = self(**inputs)
-        tmp_eval_loss, logits = outputs[:2]
+        loss, logits = outputs[:2]
+        if self.crf is not None:
+            log_probs = torch.nn.functional.log_softmax(logits, dim=2)
+            labels, ilens = batch[3], batch[4]
+            loss = -self.crf(log_probs, ilens, labels)
         preds = logits.detach().cpu().numpy()
-        out_label_ids = inputs["labels"].detach().cpu().numpy()
-        return {"val_loss": tmp_eval_loss.detach().cpu(), "pred": preds, "target": out_label_ids}
+        out_label_ids = inputs["labels"]
+        return {"val_loss": loss, "pred": preds, "target": out_label_ids}
 
     def test_step(self, batch, batch_nb):
         return self.validation_step(batch, batch_nb)
@@ -129,7 +155,7 @@ class DialogActTransformer(pl.LightningModule):
 
     def get_lr_scheduler(self):
         scheduler = get_linear_schedule_with_warmup(
-            self.opt, num_warmup_steps=0, num_training_steps=self.total_steps
+            self.opt, num_warmup_steps=250, num_training_steps=self.total_steps
         )
         scheduler = {"scheduler": scheduler, "interval": "step", "frequency": 1}
         return scheduler
@@ -148,12 +174,14 @@ class DialogActTransformer(pl.LightningModule):
                 "weight_decay": 0.0,
             },
         ]
-        optimizer = AdamW(optimizer_grouped_parameters, lr=5e-5, eps=1e-8)
-        self.opt = optimizer
+        self.opt = AdamW(
+                optimizer_grouped_parameters, 
+                lr=5e-5, 
+                eps=1e-8
+        )
+        self.scheduler = self.get_lr_scheduler()
 
-        scheduler = self.get_lr_scheduler()
-
-        return [optimizer], [scheduler]
+        return [self.opt], [self.scheduler]
 
     def set_output_dir(self, output_dir: Path):
         self.output_dir = Path(output_dir)
@@ -175,6 +203,9 @@ class DialogActTransformer(pl.LightningModule):
 def pad_outputs(outputs: Dict) -> Dict:
     max_out_len = max(x["pred"].shape[1] for x in outputs)
     for x in outputs:
+        for k in ['pred', 'target']:
+            if isinstance(x[k], torch.Tensor):
+                x[k] = x[k].cpu().numpy()
         x["pred"] = pad_array(x["pred"], target_len=max_out_len, value=0)
         x["target"] = pad_array(x["target"], target_len=max_out_len, value=CrossEntropyLoss().ignore_index)
     return outputs

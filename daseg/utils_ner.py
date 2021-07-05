@@ -18,7 +18,7 @@
 import logging
 import os
 
-from daseg.data import NEW_TURN
+from daseg.data import BLANK, NEW_TURN
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +103,7 @@ def convert_examples_to_features(
 
     label_map = {label: i for i, label in enumerate(label_list)}
     label_map[NEW_TURN] = pad_token_label_id
+    label_map[BLANK] = pad_token_label_id
 
     features = []
     for (ex_index, example) in enumerate(examples):
@@ -114,8 +115,11 @@ def convert_examples_to_features(
         for word, label in zip(example.words, example.labels):
             word_tokens = tokenizer.tokenize(word)
             tokens.extend(word_tokens)
-            word_labels = [label_map[label]] + [pad_token_label_id] * (len(word_tokens) - 1)
+            # Change it!
             # Use the real label id for the first token of the word, and padding ids for the remaining tokens
+            word_labels = [label_map[label]] + [pad_token_label_id] * (len(word_tokens) - 1)
+            # # Use the real label id for every token of a word
+            # word_labels = [label_map[label]] * len(word_tokens)
             label_ids.extend(word_labels)
 
         # Account for [CLS] and [SEP] with "- 2" and with "- 3" for RoBERTa.

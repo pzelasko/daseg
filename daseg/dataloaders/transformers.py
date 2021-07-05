@@ -178,13 +178,20 @@ def to_transformers_eval_dataloader(
     return to_dataloader(dataset, batch_size=batch_size, train=False, padding_at_start=model_type == 'xlnet')
 
 
-def truncate_padding_collate_fn(batch: List[List[torch.Tensor]], padding_at_start: bool = False):
+def truncate_padding_collate_fn(batch: List[List[torch.Tensor]], padding_at_start: bool = False, add_ilen: bool = True, sort: bool = True):
+    batch = sorted(batch, key=lambda tensors: (tensors[3] != -100).to(torch.int32).sum(), reverse=True)
     redundant_padding = max(mask.sum() for _, mask, _, _ in batch)
     n_tensors = len(batch[0])
     concat_tensors = (torch.cat([sample[i].unsqueeze(0) for sample in batch]) for i in range(n_tensors))
     if padding_at_start:
         return [t[:, -redundant_padding:] for t in concat_tensors]
-    return [t[:, :redundant_padding] for t in concat_tensors]
+    truncated = [t[:, :redundant_padding] for t in concat_tensors]
+    if add_ilen:
+        # Here we add extra tensor that states the input lens
+        truncated.append(
+            truncated[1].sum(dim=1)
+        )
+    return truncated
 
 
 def pad_list_of_arrays(arrays: List[np.ndarray], value: float) -> List[np.ndarray]:

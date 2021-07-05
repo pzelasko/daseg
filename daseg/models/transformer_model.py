@@ -20,7 +20,8 @@ from transformers import (AutoModelForTokenClassification, AutoTokenizer, Longfo
 from daseg.conversion import predictions_to_dataset
 from daseg.data import DialogActCorpus
 from daseg.dataloaders.transformers import pad_list_of_arrays, to_transformers_eval_dataloader
-from daseg.metrics import compute_original_zhao_kawahara_metrics, compute_seqeval_metrics, compute_sklearn_metrics, \
+from daseg.metrics import compute_original_zhao_kawahara_metrics, compute_segeval_metrics, compute_seqeval_metrics, \
+    compute_sklearn_metrics, \
     compute_zhao_kawahara_metrics
 from daseg.models.longformer_model import LongformerForTokenClassification
 
@@ -73,7 +74,8 @@ class TransformerModel:
                 torch.arange(pl_model.config.max_position_embeddings).expand((1, -1))
             # Remove extra keys that are no longer needed...
             for k in ["model.longformer.pooler.dense.weight", "model.longformer.pooler.dense.bias"]:
-                del ckpt['state_dict'][k]
+                if k in ckpt['state_dict']:
+                    del ckpt['state_dict'][k]
         # Manually load the state dict
         pl_model.load_state_dict(ckpt['state_dict'])
 
@@ -186,8 +188,10 @@ class TransformerModel:
                 # (apparently the segment insertion errors are not counted)
                 "ORIGINAL_zhao_kawahara_metrics": compute_original_zhao_kawahara_metrics(
                     true_turns=out_label_list, pred_turns=preds_list
-                )
+                ),
             })
+            # Pk and B metrics
+
         if isinstance(dataset, DialogActCorpus):
             if use_turns:
                 dataset = DialogActCorpus(dialogues={str(i): turn for i, turn in enumerate(dataset.turns)})
@@ -199,6 +203,9 @@ class TransformerModel:
             )
             if compute_metrics:
                 results["zhao_kawahara_metrics"] = compute_zhao_kawahara_metrics(
+                    true_dataset=dataset, pred_dataset=results['dataset']
+                )
+                results["segeval_metrics"] = compute_segeval_metrics(
                     true_dataset=dataset, pred_dataset=results['dataset']
                 )
 

@@ -234,7 +234,7 @@ class DialogActCorpus:
 
     @property
     def joint_coding_dialog_act_labels(self) -> List[str]:
-        return list(chain([BLANK, CONTINUE_TAG], self.dialog_acts))
+        return list(chain([CONTINUE_TAG], self.dialog_acts))
 
     @property
     def vocabulary(self) -> Counter:
