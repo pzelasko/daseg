@@ -1,5 +1,6 @@
 import json
 from copy import deepcopy
+from datetime import datetime
 from functools import partial
 from operator import itemgetter
 from pathlib import Path
@@ -129,7 +130,7 @@ class TransformerModel:
         else:
             dataloader = dataset
 
-        eval_ce_losses, logits, out_label_ids = zip(*list(maybe_tqdm(
+        eval_ce_losses, logits, out_label_ids, pred_times = zip(*list(maybe_tqdm(
             map(
                 partial(
                     predict_batch_in_windows,
@@ -143,6 +144,9 @@ class TransformerModel:
                 dataloader
             ),
         )))
+
+        window_pred_times = [pt for pts in pred_times for pt in pts]
+        batch_pred_times = [sum(pts) for pts in pred_times]
 
         pad_token_label_id = CrossEntropyLoss().ignore_index
         out_label_ids = pad_list_of_arrays(out_label_ids, value=pad_token_label_id)
@@ -169,6 +173,8 @@ class TransformerModel:
             "predictions": preds_list,
             "logits": logits,
             "true_labels": out_label_list,
+            "window_forward_times": window_pred_times,
+            "batch_forward_times": batch_pred_times
         }
         if isinstance(dataset, DialogActCorpus):
             results["true_dataset"] = dataset
@@ -231,6 +237,7 @@ def predict_batch_in_windows(
     ce_loss, logits = [], []
 
     mems = None
+    pred_times = []
     with torch.no_grad():
         for window in windows:
             # Construct the input according to specific Transformer model
@@ -242,7 +249,9 @@ def predict_batch_in_windows(
             if use_xlnet_memory:
                 inputs['mems'] = mems
             # Compute
+            start = datetime.now()
             outputs = model(**inputs)
+            pred_times.append((datetime.now() - start).total_seconds())
             batch_ce_loss = outputs[0]
             batch_logits = outputs[1]
             # Consume the outputs according to a specific model
@@ -255,7 +264,7 @@ def predict_batch_in_windows(
                 mems = outputs[2]
     # workaround for PyTorch file descriptor leaks:
     # https://github.com/pytorch/pytorch/issues/973
-    returns = ce_loss, np.concatenate(logits, axis=1), deepcopy(batch[3].detach().cpu().numpy())
+    returns = ce_loss, np.concatenate(logits, axis=1), deepcopy(batch[3].detach().cpu().numpy()), pred_times
     for t in batch:
         del t
     return returns
