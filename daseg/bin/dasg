@@ -30,51 +30,6 @@ def cli():
 
 
 @cli.command()
-@click.argument('output_dir', type=click.Path())
-@click.option('--dataset-path', default='deps/swda/swda', type=click.Path(exists=True))
-@click.option('--window-size', type=int, default=None)
-@click.option('--window-overlap', type=int, default=None)
-@click.option('-p', '--strip-punctuation-and-lowercase', is_flag=True)
-@click.option('-c', '--continuations-allowed', is_flag=True)
-@click.option('-m', '--merge-continuations', is_flag=True)
-@click.option('-t', '--window-test', is_flag=True)
-@click.option('-s', '--tagset', default='basic',
-              type=click.Choice(['basic', 'general', 'full', 'broken_swda', 'segmentation']))
-@click.option('-j', '--no-joint-coding', is_flag=True)
-@click.option('-n', '--turns', is_flag=True)
-def prepare_data(
-        output_dir: str,
-        dataset_path: str,
-        window_size: Optional[int],
-        window_overlap: Optional[int],
-        strip_punctuation_and_lowercase: bool,
-        continuations_allowed: bool,
-        merge_continuations: bool,
-        window_test: bool,
-        tagset: str,
-        no_joint_coding: bool,
-        turns: bool
-):
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    dataset = DialogActCorpus.from_path(
-        dataset_path=dataset_path,
-        strip_punctuation_and_lowercase=strip_punctuation_and_lowercase,
-        tagset=tagset,
-        merge_continuations=merge_continuations
-    )
-    for split_name, split_dataset in dataset.train_dev_test_split().items():
-        split_dataset.dump_for_transformers_ner(
-            output_dir / f'{split_name}.txt.tmp',
-            acts_count_per_sample=window_size if split_name != 'test' or window_test else None,
-            acts_count_overlap=window_overlap if split_name != 'test' or window_test else None,
-            continuations_allowed=continuations_allowed,
-            use_joint_coding=not no_joint_coding,
-            use_turns=turns,
-        )
-
-
-@cli.command()
 @click.argument('model_path', type=click.Path(exists=True))
 @click.option('--dataset-path', default='deps/swda/swda', type=click.Path(exists=True))
 @click.option('--split', type=click.Choice(['train', 'dev', 'test']), default='test')
