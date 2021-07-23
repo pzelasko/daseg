@@ -3,6 +3,8 @@ import shutil
 import subprocess
 from pathlib import Path
 from time import sleep
+import glob
+
 
 def str2bool(v):
     if isinstance(v, bool):
@@ -15,70 +17,16 @@ def str2bool(v):
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--general-exps', type=str2bool, default=True)
-parser.add_argument('--label-sets', type=str2bool, default=False)
-parser.add_argument('--use-grid', type=str2bool, default=True)
-parser.add_argument('--pause', type=str2bool, default=False)
-parser.add_argument('--skip-data-prep', type=str2bool, default=False)
-parser.add_argument('--bigru', type=str2bool, default=True)
-parser.add_argument('--longformer', type=str2bool, default=True)
-parser.add_argument('--xlnet', type=str2bool, default=True)
-parser.add_argument('--turns', type=str2bool, default=True)
-parser.add_argument('--dialog', type=str2bool, default=True)
-parser.add_argument('--train', type=str2bool, default=True)
-parser.add_argument('--evaluate', type=str2bool, default=False)
-parser.add_argument('--dry-run', type=str2bool, default=False)
-parser.add_argument('--exp-dir', default='journal')
-args = parser.parse_args()
-
-SCRIPT_TEMPLATE = """#!/usr/bin/env bash
-
-conda activate swda
-export CUDA_VISIBLE_DEVICES=$(free-gpu -n {num_gpus})
-cd {work_dir}
-{cmd}
-"""
-
-QSUB_TEMPLATE = "qsub -l \"hostname=c*,gpu={num_gpus},mem_free={mem}G,ram_free={mem}G\" -q {queue} -e {logerr} -o {logout} -N {name} {script}"
-
-WORK_DIR = '/export/c12/pzelasko/daseg/daseg'
-EXP_DIR = str(Path(WORK_DIR) / args.exp_dir)
-SEEDS = (42, 43, 44)
-
-opts = {
-    'longformer': '--model-name-or-path allenai/longformer-base-4096',
-    'xlnet': '--model-name-or-path xlnet-base-cased',
-    'lower': '-p',
-    'nolower': '',
-    'swda': '--dataset-path deps/swda/swda',
-    'mrda': '--dataset-path deps/mrda'
-}
-
-seqlen = {
-    'longformer': 4096,
-    'xlnet': 512
-}
-
-bsize = {
-    'longformer': 1,
-    'xlnet': 6
-}
-
-gacc = {
-    'longformer': 1,
-    'xlnet': 1
-}
-
-
 def run(cmd: str):
     if args.dry_run:
         print(cmd)
     else:
+        print(cmd)
         subprocess.run(cmd, shell=True, text=True)
 
 
-def submit(cmd: str, name: str, work_dir: str = WORK_DIR, num_gpus: int = 1):
+def submit(cmd: str, name: str, work_dir: str = None, num_gpus: int = 1):
+    print(cmd)
     if args.use_grid:
         script_path = f'{outdir()}/run_task_{name}.sh'
         script = SCRIPT_TEMPLATE.format(
@@ -112,114 +60,100 @@ def submit(cmd: str, name: str, work_dir: str = WORK_DIR, num_gpus: int = 1):
         sleep(15 if num_gpus else 2)
 
 
-if not args.dry_run:
-    Path(EXP_DIR).mkdir(parents=True, exist_ok=True)
-
-
 def outdir(use_seed=True, mkdir=True):
     def inner():
         if use_seed:
-            return f'{EXP_DIR}/{model}_{corpus}_{context}_{case}_{tagset}_{seed}'
-        return f'{EXP_DIR}/{model}_{corpus}_{context}_{case}_{tagset}'
+            return f'{EXP_DIR}'
+            #return f'{EXP_DIR}/{model}_{corpus}_{seed}'
     path = inner()
     if mkdir and not args.dry_run:
         Path(path).mkdir(exist_ok=True, parents=True)
     return path
 
 
-MODELS = (['longformer'] if args.longformer else []) + (['xlnet'] if args.xlnet else [])
+parser = argparse.ArgumentParser()
+parser.add_argument('--general-exps', type=str2bool, default=True)
+parser.add_argument('--use-grid', type=str2bool, default=True)
+parser.add_argument('--pause', type=str2bool, default=False)
+parser.add_argument('--train', type=str2bool, default=True)
+parser.add_argument('--evaluate', type=str2bool, default=False)
+parser.add_argument('--dry-run', type=str2bool, default=False)
+parser.add_argument('--exp-dir', default='journal')
+parser.add_argument('--data-dir', type=str)
+parser.add_argument('--train-mode', type=str)
+parser.add_argument('--max-sequence-length', type=int, default=4096)
+parser.add_argument('--frame-len', type=float, default=0.1)
+parser.add_argument('--label-scheme', default='Exact', type=str)
+parser.add_argument('--segmentation-type', default='smooth',  type=str)
+parser.add_argument('--num-gpus', default=0, type=int)
+parser.add_argument('--batch-size', default=6, type=int)
+parser.add_argument('--gacc', default=1, type=int)
+parser.add_argument('--results-suffix', default='.pkl', type=str)
+parser.add_argument('--concat-aug', default=-1, type=int)
+parser.add_argument('--corpus', default='IEMOCAP', type=str)
+parser.add_argument('--emospotloss-wt', default=1.0, type=float)
+parser.add_argument('--no-epochs', default=50, type=int)
+parser.add_argument('--emospot-concat', default=False, type=lambda x:x.lower()=='true')
+parser.add_argument('--seed', default=42, type=int)
+parser.add_argument('--label-smoothing-alpha', default=0, type=float)
+parser.add_argument('--model-name', default='longformer', type=str)
+parser.add_argument('--pre-trained-model', default=False, type=str2bool)
+parser.add_argument('--test-file', default='test.tsv', type=str)
+parser.add_argument('--full-speech', default=False, type=lambda x:x.lower()=='true')
+parser.add_argument('--monitor-metric', default='macro_f1', type=str)
+parser.add_argument('--monitor-metric-mode', default='max', type=str, help='max, min')
+parser.add_argument('--pretrained-model-path', default='/export/b15/rpapagari/kaldi_21Aug2019/egs/sre16/Emotion_xvector_ICASSP2020_ComParE_v2/pretrained_xvector_models/model_aug_xvector.h5', type=str)
+parser.add_argument('--classwts', default=None, type=str)
 
-if args.general_exps:
-    tagset = 'basic'
-    for corpus in ('swda', 'mrda'):
-        for case in ('lower', 'nolower'):
-            # Data preparation
-            if not args.skip_data_prep:
-                for model in MODELS:
-                    # Transformers dialog-level baseline data-prep
-                    if args.dialog:
-                        context = 'dialog'
-                        run(f'dasg prepare-exp {opts[model]} {opts[corpus]} '
-                            f'{opts[case]} -s {tagset} -l {seqlen[model]} -w {outdir(use_seed=False)}')
-                    # Transformers turn-level baseline data-prep
-                    if args.turns:
-                        context = 'turn'
-                        run(f'dasg prepare-exp {opts[model]} {opts[corpus]} '
-                            f'{opts[case]} -s {tagset} --turns -l 128 {outdir(use_seed=False)}')
-            # Model training
-            for seed in SEEDS:
-                # BiGRU turn-level baseline
-                if args.bigru and args.turns:
-                    model = 'bigru'
-                    context = 'turn'
-                    submit(
-                        f'dasg train-bigru -g 1 -s {tagset} -b 30 -e 10 -r {seed} {opts[corpus]} {opts[case]} {outdir()}',
-                        name='train')
-                # Transformers
-                for model in MODELS:
-                    for context in (['turn'] if args.turns else []) + (['dialog'] if args.dialog else []):
-                        if not args.dry_run:
-                            try:
-                                shutil.copytree(outdir(use_seed=False), outdir(use_seed=True, mkdir=False))
-                            except FileExistsError:
-                                pass
-                    # Transformers turn-level baseline
-                    if args.turns:
-                        context = 'turn'
-                        if args.train:
-                            submit(f"dasg train-transformer {opts[model]} -b 8 -c 8 -e 10 "
-                                   f"-a 1 -r {seed} -g 1 {outdir()}", name='train')
-                        if args.evaluate:
-                            ckpts = list(Path(outdir()).glob('checkpoint*.ckpt'))
-                            if ckpts:
-                                submit(f'dasg evaluate {opts[corpus]} --split test -b 1 --device cpu '
-                                       f'-o {outdir()}/results.pkl {opts[case]} -s {tagset} --turns {ckpts[0]}',
-                                       num_gpus=0,
-                                       name='test')
-                            else:
-                                print('No checkpoint in directory:', outdir())
-                    # Transformers dialog-level
-                    if args.dialog:
-                        context = 'dialog'
-                        if args.train:
-                            submit(f"dasg train-transformer {opts[model]} -b {bsize[model]} -c 8 -e 10 "
-                                   f"-a {gacc[model]} -r {seed} -g 1 {outdir()}", name='train')
-                        if args.evaluate:
-                            ckpts = list(Path(outdir()).glob('checkpoint*.ckpt'))
-                            if ckpts:
-                                submit(
-                                    f'dasg evaluate {opts[corpus]} -l {seqlen[model]} --split test -b 1 --device cpu '
-                                    f'-o {outdir()}/results.pkl {opts[case]} -s {tagset} {ckpts[0]}', num_gpus=0,
-                                    name='test')
-                                if model == 'xlnet':
-                                    submit(
-                                        f'dasg evaluate {opts[corpus]} -l {seqlen[model]} --split test -b 1 --device cpu '
-                                        f'-o {outdir()}/results_noprop.pkl {opts[case]} -s {tagset} -d {ckpts[0]}',
-                                        num_gpus=0,
-                                        name='test_noprop')
-                            else:
-                                print('No checkpoint in directory:', outdir())
+args = parser.parse_args()
 
-if args.label_sets:
-    context = 'dialog'
-    model = 'xlnet'
-    for corpus in ('mrda', 'swda'):
-        for tagset in ['segmentation'] + (['general', 'full'] if corpus == 'mrda' else []):
-            for case in ('lower', 'nolower'):
-                if not args.skip_data_prep and not (Path(outdir(use_seed=False)) / 'dataset.pkl').exists():
-                    run(f'dasg prepare-exp {opts[model]} {opts[corpus]} '
-                        f'{opts[case]} -s {tagset} -l {seqlen[model]} -w {outdir(use_seed=False)}')
-                for seed in SEEDS:
-                    if not args.dry_run:
-                        run(f'cp {outdir(use_seed=False)}/* {outdir()}')
-                    if args.train:
-                        submit(f"dasg train-transformer {opts[model]} -b {bsize[model]} -c 8 -e 10 "
-                               f"-a {gacc[model]} -r {seed} -g 1 {outdir()}", name='train')
-                    if args.evaluate:
-                        ckpts = list(Path(outdir()).glob('checkpoint*.ckpt'))
-                        if ckpts:
-                            submit(f'dasg evaluate {opts[corpus]} -l {seqlen[model]} --split test -b 1 --device cpu '
-                                   f'-o {outdir()}/results.pkl {opts[case]} -s {tagset} {ckpts[0]}', num_gpus=0,
-                                   name='test')
-                        else:
-                            print('No checkpoint in directory:', outdir())
+SCRIPT_TEMPLATE = """#!/usr/bin/env bash
+source /home/rpapagari/.bashrc
+source activate daseg_v2
+export CUDA_VISIBLE_DEVICES=$(free-gpu -n {num_gpus})
+cd {work_dir}
+{cmd}
+"""
+
+QSUB_TEMPLATE = "qsub -l \"hostname=!c01*&!c24*&c*,gpu={num_gpus},mem_free={mem}G,ram_free={mem}G\" -q {queue} -e {logerr} -o {logout} -N {name} {script}"
+
+WORK_DIR = '/export/c02/rpapagari/daseg_erc/daseg'
+EXP_DIR = str(Path(WORK_DIR) / args.exp_dir)
+#SEEDS = [42] #(42, 43, 44)
+
+
+if args.model_name == 'longformer':
+    args.model_name = 'allenai/longformer-base-4096'
+
+if not args.dry_run:
+    Path(EXP_DIR).mkdir(parents=True, exist_ok=True)
+
+if 'T' in args.train_mode:
+    already_trained = glob.glob(EXP_DIR + '/checkpointepoch*.ckpt')
+    if len(already_trained) > 0:
+        raise ValueError(f'{EXP_DIR} already was trained so we can not train again')
+    
+if args.train_mode == 'E':
+    already_trained = glob.glob(EXP_DIR + '/checkpointepoch*.ckpt')
+    if  len(already_trained) != 1:
+        raise ValueError(f'{EXP_DIR} does not have checkpoints or multiple checkpoints')
+
+
+corpus = args.corpus #'IEMOCAP'
+seed = args.seed
+
+submit(f"dasg train-transformer --model-name-or-path {args.model_name} --batch-size {args.batch_size} --val-batch-size 1 --epochs {args.no_epochs} "
+       f"--random-seed {args.seed} --num-gpus {args.num_gpus} --gradient-accumulation-steps {args.gacc} "
+       f"--max-sequence-length {args.max_sequence_length} --pre-trained-model {args.pre_trained_model} "
+       f"--frame-len {args.frame_len} --data-dir {args.data_dir} --train-mode {args.train_mode} "
+       f"--label-scheme {args.label_scheme} --segmentation-type {args.segmentation_type} "
+       f"--results-suffix {args.results_suffix} --concat-aug {args.concat_aug} "
+       f"--emospotloss-wt {args.emospotloss_wt} --emospot-concat {args.emospot_concat} "
+       f"--label-smoothing-alpha {args.label_smoothing_alpha} --test-file {args.test_file} "
+       f"--full-speech {args.full_speech} --monitor-metric {args.monitor_metric} "
+       f"--monitor-metric-mode {args.monitor_metric_mode} --pretrained-model-path {args.pretrained_model_path}  "
+       f"--classwts {args.classwts} {outdir()} ", 
+       name='train', work_dir=WORK_DIR, num_gpus=args.num_gpus)
+
+
+

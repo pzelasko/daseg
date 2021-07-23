@@ -42,6 +42,8 @@ cd daseg
 # Installs the rest of requirements from pip
 pip install -r requirements.txt 
 
+python3 -m spacy download en
+
 # Downloads and "installs" SWDA and MRDA
 ./install.sh
 

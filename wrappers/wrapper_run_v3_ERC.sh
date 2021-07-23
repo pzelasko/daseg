@@ -1,0 +1,30 @@
+
+train_mode=E
+for concat_aug in 0 -1 ##-1 #-1 #-1 # 0 #-1
+do
+for task_name in MELD_Emotion_ConvClassif_bilstm_fs10ms_spkrind
+#MELD_Emotion_ConvClassif_xformer_cnnop_segpool_fs10ms_spkrind_classwts #MELD_Emotion_ConvClassif_xformer_cnnop_segpool_fs10ms_spkrind
+
+
+#MELD_Emotion_ConvClassif_xformer_cnnop_segpool_fs10ms_spkrind_classwts
+#SWBD_UttClassif_xformer
+#MELD_Sentiment_UttClassif_bilstm_seqclassif MELD_Sentiment_UttClassif_longformer_seqclassif
+#MELD_Emotion_ConvClassif_xformer_cnnop_segpool_fs10ms_spkrind 
+#MELD_Sentiment_ConvClassif_xformer_cnnop_segpool_fs10ms_spkrind
+#IEMOCAP_ConvClassif_xformer_cnnop_segpool_smoothed_overlap_silence_OOSNone_spkrind 
+#IEMOCAP_ConvClassif_bilstm
+#MELD_Emotion_ConvClassif_Longformer_fs10ms_spkrind  MELD_Emotion_ConvClassif_bilstm_fs10ms_spkrind MELD_Emotion_ConvClassif_Longformer_fs100ms_spkrind MELD_Emotion_ConvClassif_bilstm_fs100ms_spkrind
+#MELD_Sentiment_UttClassif_bilstm_seqclassif MELD_Sentiment_UttClassif_longformer_seqclassif
+#MELD_Emotion_UttClassif_longformer_seqclassif #MELD_Emotion_UttClassif_bilstm_seqclassif 
+#SWBD_UttClassif_longformer_seqclassif #SWBD_UttClassif_bilstm_seqclassif 
+#SWBD_UttClassif_bilstm SWBD_UttClassif_longformer SWBD_UttClassif_ResNet SWBD_UttClassif_xformer
+do
+    gpu=0 #1
+    grid=True #False #True
+    bash run_v3_ERC.sh 1 $train_mode $gpu 6 5 $concat_aug 42 $grid $task_name
+
+done
+done
+
+
+

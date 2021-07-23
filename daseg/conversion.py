@@ -5,6 +5,9 @@ from cytoolz.itertoolz import sliding_window
 
 from daseg import DialogActCorpus, FunctionalSegment, Call
 from daseg.data import NEW_TURN, is_begin_act, is_continued_act, decode_act, BLANK
+from hdf_utils import hdf5_write
+import h5py
+import numpy as np
 
 
 def joint_coding_predictions_to_corpus(predictions: List[List[str]]) -> DialogActCorpus:
@@ -152,3 +155,29 @@ def predictions_to_dataset(
         dialogues[call_id] = Call(segmentation(turns(zip(words, pred_tags, speakers))))
 
     return DialogActCorpus(dialogues=dialogues)
+
+
+def write_logits_h5(results, out_h5_path):
+    model_preds = results['logits']
+    utt_list = results['utt_id']
+    true_labels = results['true_labels']
+
+    #true_labels = true_labels[0] # it was stored as list of lists
+    #print(f'num of utts are {len(true_labels)}, {len(utt_list)}')
+    #assert len(true_labels) == len(utt_list)
+
+    for ind,utt_id in enumerate(utt_list):
+        if isinstance(utt_id, list):
+            if len(utt_id) > 1:
+                raise ValueError(f'something is wrong with utt_id, it needs to have only one element ')
+            utt_id = utt_id[0]
+        utt_preds = model_preds[ind]
+        if np.isscalar(utt_preds):
+            utt_preds = np.array([utt_preds]) #.squeeze()
+        else:
+            utt_preds = np.array(utt_preds).squeeze()
+
+        hdf5_write(utt_preds, out_h5_path, utt_id)
+
+
+

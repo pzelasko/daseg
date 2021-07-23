@@ -1,0 +1,343 @@
+#!/usr/bin/env python
+import pickle
+import sys, os
+from pathlib import Path
+from typing import Optional, Dict, List
+
+from copy import deepcopy
+import click
+import pytorch_lightning as pl
+import torch
+from pytorch_lightning.callbacks import ModelCheckpoint
+from torch.utils.data import Dataset
+from torch.utils.data.dataloader import DataLoader
+
+from daseg import DialogActCorpus
+from daseg.data import BLANK
+from daseg.dataloaders.transformers import to_dataset, to_dataloader, to_speech_dataloader, EmoSpot_speech_dataloader, to_text_dataloader, to_speech_dataloader_SeqClassification, to_multimodal_dataloader_SeqClassification
+from daseg.dataloaders.turns import SingleTurnDataset, padding_collate_fn
+from daseg.models.bigru import ZhaoKawaharaBiGru
+from daseg.models.transformer_pl import DialogActTransformer, XFormer, XFormerPoolSegClassification, XFormerCNNOPPoolSegments_pl, TransformerTextSeqClassification, TransformerSpeechSeqClassification, TransformerTextSeqClassificationBERT, TransformerMultiModalSeqClassification_pl
+from daseg.models.transformer_model import TransformerModelSeqClassification, TransformerModel, TransformerMultimodalSeqClassificationInference
+from daseg.models.bilstm import BiLSTM_pl, ResNet34_pl, ResNet34_SeqClassification_pl
+from daseg.slack import SlackNotifier
+
+from daseg.dataloader_speech import get_target_encoder_ERC
+import glob, random
+import numpy as np
+
+#if torch.cuda.is_available():
+#    torch.tensor([0], device='cuda')
+
+
+@click.group()
+def cli():
+    pass
+
+
+def choose_model_dataloader(model_name_or_path, model_args, dataloader_args, train_mode, exp_dir, 
+                            target_label_encoder, pretrained_model_path, num_gpus, max_sequence_length, label_scheme):
+    results = None
+    if train_mode == 'E':
+        model_path = glob.glob(exp_dir + '/checkpointepoch=*.ckpt')
+        if len(model_path) > 1:
+            raise ValueError(f'more than one checkpoint exists in the expt_dir, please check')
+        else:   
+            model_path = model_path[0]
+        print(f'model_path for evaluation is {model_path}')
+
+    model_args['target_label_encoder'] = target_label_encoder
+    model_args['pretrained_model_path'] = pretrained_model_path
+    if model_name_or_path.lower() == 'xformer':
+        data_loaders, inputs_embeds_dim = to_speech_dataloader(**dataloader_args)
+        model_args['inputs_embeds_dim'] = inputs_embeds_dim
+        if 'T' in train_mode:
+            model = XFormer(**model_args)
+        if 'E' in train_mode: 
+            model = XFormer.load_from_checkpoint(str(model_path), device='cuda' if num_gpus>0 else 'cpu')
+            model = TransformerModel(model, tokenizer=None, device='cuda' if num_gpus>0 else 'cpu')
+            results = model.predict(dataset=data_loaders['test'], window_len=max_sequence_length, label_scheme=label_scheme)
+
+    elif model_name_or_path.lower() == 'xformersegpool':
+        data_loaders, inputs_embeds_dim = to_speech_dataloader(**dataloader_args)
+        model_args['inputs_embeds_dim'] = inputs_embeds_dim
+        if 'T' in train_mode:
+            model = XFormerPoolSegClassification(**model_args)
+        if 'E' in train_mode:
+            model = XFormerPoolSegClassification.load_from_checkpoint(str(model_path), device='cuda' if num_gpus>0 else 'cpu')
+            model = TransformerModel(model, tokenizer=None, device='cuda' if num_gpus>0 else 'cpu')
+            results = model.predict(dataset=data_loaders['test'], window_len=max_sequence_length, label_scheme=label_scheme)
+ 
+    elif model_name_or_path.lower() == 'xformer_cnnop_segpool':
+        data_loaders, inputs_embeds_dim = to_speech_dataloader(**dataloader_args)
+        model_args['inputs_embeds_dim'] = inputs_embeds_dim
+        if 'T' in train_mode:
+            model = XFormerCNNOPPoolSegments_pl(**model_args)
+        if 'E' in train_mode:    
+            model = XFormerCNNOPPoolSegments_pl.load_from_checkpoint(str(model_path), device='cuda' if num_gpus>0 else 'cpu')
+            model = TransformerModel(model, tokenizer=None, device='cuda' if num_gpus>0 else 'cpu')
+            results = model.predict(dataset=data_loaders['test'], window_len=max_sequence_length, label_scheme=label_scheme)
+
+    elif (model_name_or_path.lower() == 'bilstm'):
+        data_loaders, inputs_embeds_dim = to_speech_dataloader(**dataloader_args)
+        model_args['inputs_embeds_dim'] = inputs_embeds_dim
+        model_args.pop('pretrained_model_path')
+        if 'T' in train_mode:
+            model = BiLSTM_pl(**model_args)
+        if 'E' in train_mode:
+            model = BiLSTM_pl.load_from_checkpoint(str(model_path), map_location='cuda' if num_gpus>0 else 'cpu')
+            results = model.predict(dataset=data_loaders['test'], label_scheme=label_scheme)
+
+    elif (model_name_or_path.lower() == 'resnet'):
+        data_loaders, inputs_embeds_dim = to_speech_dataloader(**dataloader_args)
+        model_args['inputs_embeds_dim'] = inputs_embeds_dim
+        if 'T' in train_mode:
+            model = ResNet34_pl(**model_args)
+        if 'E' in train_mode:
+            model = ResNet34_pl.load_from_checkpoint(str(model_path), map_location='cuda' if num_gpus>0 else 'cpu')
+            results = model.predict(dataset=data_loaders['test'], label_scheme=label_scheme)
+
+    elif (model_name_or_path.lower() == 'resnet_SeqClassification'.lower()):
+        data_loaders, inputs_embeds_dim = to_speech_dataloader_SeqClassification(**dataloader_args)
+        model_args['inputs_embeds_dim'] = inputs_embeds_dim
+        if 'T' in train_mode:
+            model = ResNet34_SeqClassification_pl(**model_args)
+        if 'E' in train_mode:
+            model = ResNet34_SeqClassification_pl.load_from_checkpoint(str(model_path), map_location='cuda' if num_gpus>0 else 'cpu')
+            results = model.predict(dataset=data_loaders['test'], label_scheme=label_scheme)
+
+    elif (model_name_or_path.lower() == 'longformer_text_SeqClassification'.lower()):
+        model_args['inputs_embeds_dim'] = None
+        remove_args = ['emospotloss_wt', 'emospot_concat']
+        for i in remove_args:
+            if i in model_args:
+                model_args.pop(i) 
+        if 'T' in train_mode:
+            model = TransformerTextSeqClassification(**model_args)
+            dataloader_args['tokenizer'] = model.tokenizer
+            data_loaders, inputs_embeds_dim = to_text_dataloader(**dataloader_args)
+        if 'E' in train_mode:
+            ## you can use max_sequence_length=4096 for evaluation even though you use smaller seq length during training. 
+            ## Reason: Longformer can deal with 4096 sequence length
+            #max_sequence_length = 512
+            model = TransformerTextSeqClassification.load_from_checkpoint(str(model_path), device='cuda' if num_gpus>0 else 'cpu')
+            model = TransformerModelSeqClassification(model, tokenizer=model.tokenizer, device='cuda' if num_gpus>0 else 'cpu')
+            dataloader_args['tokenizer'] = model.tokenizer
+            data_loaders, inputs_embeds_dim = to_text_dataloader(**dataloader_args)
+            results = model.predict(dataset=data_loaders['test'], window_len=max_sequence_length, label_scheme=label_scheme)
+    elif (model_name_or_path == 'bert-base-uncased'):
+        model_args['inputs_embeds_dim'] = None
+        remove_args = ['emospotloss_wt', 'emospot_concat']
+        for i in remove_args:
+            if i in model_args:
+                model_args.pop(i) 
+        if 'T' in train_mode:
+            model = TransformerTextSeqClassificationBERT(**model_args)
+            dataloader_args['tokenizer'] = model.tokenizer
+            data_loaders, inputs_embeds_dim = to_text_dataloader(**dataloader_args)
+        if 'E' in train_mode:
+            ## you can use max_sequence_length=4096 for evaluation even though you use smaller seq length during training. 
+            ## Reason: Longformer can deal with 4096 sequence length
+            #max_sequence_length = 512
+            model = TransformerTextSeqClassificationBERT.load_from_checkpoint(str(model_path), device='cuda' if num_gpus>0 else 'cpu')
+            model = TransformerModelSeqClassification(model, tokenizer=model.tokenizer, device='cuda' if num_gpus>0 else 'cpu')
+            dataloader_args['tokenizer'] = model.tokenizer
+            data_loaders, inputs_embeds_dim = to_text_dataloader(**dataloader_args)
+            results = model.predict(dataset=data_loaders['test'], window_len=max_sequence_length, label_scheme=label_scheme)
+
+    elif (model_name_or_path == 'TransformerMultiModalSeqClassification'):
+        model_args['inputs_embeds_dim'] = 23
+        dataloader_args['max_len_text'] = 512 # for now hard coding it as we are using only BERT model and 512 words are good enough for many classification tasks
+        model_args['no_cross_att_layers'] = 2
+        model_args['speech_att'] = False
+        remove_args = ['emospotloss_wt', 'emospot_concat']
+        for i in remove_args:
+            if i in model_args:
+                model_args.pop(i) 
+        if 'T' in train_mode:
+            model = TransformerMultiModalSeqClassification_pl(**model_args)
+            dataloader_args['tokenizer'] = model.tokenizer
+            data_loaders, inputs_embeds_dim = to_multimodal_dataloader_SeqClassification(**dataloader_args)
+
+        if 'E' in train_mode:
+            ## you can use max_sequence_length=4096 for evaluation even though you use smaller seq length during training. 
+            ## Reason: Longformer can deal with 4096 sequence length
+            #max_sequence_length = 512
+            model = TransformerMultiModalSeqClassification_pl.load_from_checkpoint(str(model_path), device='cuda' if num_gpus>0 else 'cpu')
+            model = TransformerMultimodalSeqClassificationInference(model, tokenizer=model.tokenizer, device='cuda' if num_gpus>0 else 'cpu')
+            dataloader_args['tokenizer'] = model.tokenizer
+            data_loaders, inputs_embeds_dim = to_multimodal_dataloader_SeqClassification(**dataloader_args)
+            results = model.predict(dataset=data_loaders['test'], window_len=min(dataloader_args['max_len_text'], max_sequence_length), label_scheme=label_scheme,
+                                max_len_text=dataloader_args['max_len_text'], max_len_speech=max_sequence_length)
+
+
+    elif (model_name_or_path.lower() == 'longformer_speech_SeqClassification'.lower()):
+        data_loaders, inputs_embeds_dim = to_speech_dataloader_SeqClassification(**dataloader_args)
+        model_args['inputs_embeds_dim'] = inputs_embeds_dim
+        remove_args = ['emospotloss_wt', 'emospot_concat']
+        for i in remove_args:
+            if i in model_args:
+                model_args.pop(i) 
+        model = TransformerSpeechSeqClassification(**model_args)
+    else:
+        data_loaders, inputs_embeds_dim = to_speech_dataloader(**dataloader_args)
+        model_args['inputs_embeds_dim'] = inputs_embeds_dim
+        model_args.pop('target_label_encoder')
+        model_args.pop('pretrained_model_path')
+        targets_list = list(target_label_encoder.classes_)
+        print(f'targets_list for model training are {targets_list}')
+
+        model_args['labels'] = targets_list
+        if 'T' in train_mode:
+            model = DialogActTransformer(**model_args)
+        if 'E' in train_mode:
+            model = TransformerModel.from_path(Path(model_path), device='cuda' if num_gpus>0 else 'cpu')
+            results = model.predict(dataset=data_loaders['test'], window_len=max_sequence_length, label_scheme=label_scheme)
+
+    return model, data_loaders, results
+
+
+@cli.command()
+@click.argument('exp-dir', type=click.Path())
+@click.option('-o', '--model-name-or-path', default='allenai/longformer-base-4096')
+@click.option('-b', '--batch-size', default=1, type=int)
+@click.option('-c', '--val-batch-size', default=8, type=int)
+@click.option('-e', '--epochs', default=10, type=int)
+@click.option('-a', '--gradient-accumulation-steps', default=1, type=int)
+@click.option('-r', '--random-seed', default=1050, type=int)
+@click.option('-g', '--num-gpus', default=0, type=int)
+@click.option('-f', '--fp16', is_flag=True)
+@click.option('-l', '--max-sequence-length', default=4096, type=int)
+@click.option('-d', '--inputs-embeds-dim', default=23, type=int)
+@click.option('--pre-trained-model', type=lambda x:x.lower()=='true', default=False)
+@click.option('--frame-len', default=0.1, type=float)
+@click.option('--data-dir', default=None, type=click.Path())
+@click.option('--train-mode', default='TE', type=str, help='TE, T, E')
+@click.option('--label-scheme', default='Exact', type=str, help='Exact, E, IE')
+@click.option('--segmentation-type', default='smooth',  type=str, help='fine, smooth')
+@click.option('--results-suffix', default='.pkl', type=str, help='used to  store the results')
+@click.option('--concat-aug', default=-1, type=int, help='-1 for no concat aug, 0 for concat aug')
+@click.option('--emospotloss-wt', default=1.0, type=float, help='used for weighing emospotloss')
+@click.option('--emospot-concat', default=False, type=lambda x:x.lower()=='true')
+@click.option('--label-smoothing-alpha', default=0, type=float)
+@click.option('--pretrained-model-path', default='/export/b15/rpapagari/kaldi_21Aug2019/egs/sre16/Emotion_xvector_ICASSP2020_ComParE_v2/pretrained_xvector_models/model_aug_xvector.h5', type=str)
+@click.option('--test-file', default='test.tsv', type=str)
+@click.option('--full-speech', default=False, type=lambda x:x.lower()=='true')
+@click.option('--monitor-metric', default='macro_f1', type=str, help='macro_f1, micro_f1, val_loss, accuracy')
+@click.option('--monitor-metric-mode', default='max', type=str, help='max, min')
+def train_transformer(
+        exp_dir: Path,
+        model_name_or_path: str,
+        batch_size: int,
+        val_batch_size: int,
+        epochs: int,
+        gradient_accumulation_steps: int,
+        random_seed: int,
+        num_gpus: int,
+        fp16: bool,
+        max_sequence_length: int,
+        inputs_embeds_dim: int,
+        pre_trained_model: bool,
+        frame_len: float,
+        data_dir: str,
+        train_mode: str,
+        label_scheme: str,
+        segmentation_type: str,
+        results_suffix: str,
+        concat_aug: int,
+        emospotloss_wt: float,
+        emospot_concat: bool,
+        label_smoothing_alpha: float,
+        pretrained_model_path: str,
+        test_file: str,
+        full_speech: bool,
+        monitor_metric: str,
+        monitor_metric_mode: str,
+):
+    if (num_gpus > 0) and (torch.cuda.is_available()):
+        torch.tensor([0], device='cuda')
+    print(f'Running on node {os.uname()[1]} with pid {os.getpid()}')  #%(os.uname()[1],os.getpid()))
+    print(click.get_os_args())
+    def seed_everything(seed):
+        random.seed(seed)
+        os.environ['PYTHONHASHSEED'] = str(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        torch.cuda.manual_seed_all(seed)
+
+    pl.seed_everything(random_seed)
+    seed_everything(random_seed)
+    if ',' in data_dir:
+        data_dir = data_dir.split(',')
+    else:
+        data_dir = [data_dir]
+
+    target_label_encoder_path = exp_dir + '/target_label_encoder.pkl'
+    if (not os.path.exists(target_label_encoder_path)) and (train_mode != 'E'):
+        target_label_encoder = get_target_encoder_ERC(data_dir[0] + '/train.tsv', additional_labels=[], remove_labels=['overlap', 'sil', 'DoNotExist'], label_scheme=label_scheme)
+        pickle.dump(target_label_encoder, open(target_label_encoder_path, 'wb'))
+    else:
+        print(f'loading the existing target_label_encoder from {target_label_encoder_path}')
+        target_label_encoder = pickle.load(open(target_label_encoder_path, 'rb'))
+
+    dataloader_args = {'data_dir':data_dir, 'batch_size':batch_size,
+                            'max_sequence_length':max_sequence_length, 'frame_len':frame_len,
+                            'target_label_encoder':target_label_encoder, 'train_mode':train_mode,
+                            'segmentation_type':segmentation_type, 'concat_aug':concat_aug, 'test_file':test_file}
+   
+    print(f'pre_trained_model is set to {pre_trained_model}')     
+    print(f'input is {inputs_embeds_dim}-dimensional input features')
+    model_args = {'model_name_or_path':model_name_or_path,
+                    'pre_trained_model':pre_trained_model, 'max_sequence_length':max_sequence_length,
+                    'emospotloss_wt':emospotloss_wt, 'emospot_concat':emospot_concat,
+                    'label_smoothing_alpha':label_smoothing_alpha}
+    
+    if (train_mode == 'TE') or (train_mode == 'T'):
+        model, data_loaders, results = choose_model_dataloader(model_name_or_path, deepcopy(model_args), deepcopy(dataloader_args), 'T', exp_dir=exp_dir, 
+                                        target_label_encoder=target_label_encoder, pretrained_model_path=pretrained_model_path, num_gpus=num_gpus,
+                                        max_sequence_length=max_sequence_length, label_scheme=label_scheme)
+        model.compute_and_set_total_steps(
+            dataloader=data_loaders['train'],
+            gradient_accumulation_steps=gradient_accumulation_steps,
+            num_epochs=epochs
+        )
+        model.set_output_dir(exp_dir)
+        trainer = pl.Trainer(
+            gradient_clip_val=1.0,
+            default_root_dir=str(exp_dir),
+            gpus=num_gpus,
+            deterministic=True,
+            checkpoint_callback=ModelCheckpoint(
+                filepath=str(exp_dir),
+                prefix='checkpoint',
+                verbose=True,
+                monitor=monitor_metric,
+                mode=monitor_metric_mode,
+                save_top_k=True
+            ),
+            max_epochs=epochs,
+            accumulate_grad_batches=gradient_accumulation_steps,
+            precision=16 if fp16 else 32,
+        )
+        trainer.fit(
+            model=model,
+            train_dataloader=data_loaders['train'],
+            )
+            #val_dataloaders=data_loaders['dev']
+        #)
+    if (train_mode == 'TE') or (train_mode == 'E'):
+        model, data_loaders, results = choose_model_dataloader(model_name_or_path, deepcopy(model_args), deepcopy(dataloader_args), 'E', exp_dir=exp_dir, 
+                                        target_label_encoder=target_label_encoder, pretrained_model_path=pretrained_model_path, num_gpus=num_gpus,
+                                        max_sequence_length=max_sequence_length, label_scheme=label_scheme)
+          
+        save_output = exp_dir + '/results' + results_suffix #+ '.pkl'
+        if save_output is not None:
+            with open(save_output, 'wb') as f:
+                pickle.dump(results, f)
+
+
+if __name__ == '__main__':
+    cli()

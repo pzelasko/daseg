@@ -24,7 +24,10 @@ def compute_sklearn_metrics(true_labels: List[List[str]], predictions: List[List
     results = {
         "micro_f1": sklmetrics.f1_score(fl, fp, average='micro'),
         "macro_f1": sklmetrics.f1_score(fl, fp, average='macro'),
+        "accuracy": sklmetrics.accuracy_score(fl, fp)
     }
+    #results.update({"confusion_matrix":sklmetrics.confusion_matrix(fl, fp, labels=list(set(fl)))})
+    
     if compute_common_I:
         I_labels = set(l for l in chain(fp, fl) if l.startswith('I-'))
         mapping = {ilab: 'I' for ilab in I_labels}
@@ -237,6 +240,100 @@ def compute_zhao_kawahara_metrics(true_dataset: DialogActCorpus, pred_dataset: D
         'JointWER': counts['JointWER'] / total_words
     }
 
+
+def compute_zhao_kawahara_metrics_speech(true_labels, pred_labels, true_seg_boundaries, label_scheme):
+    """
+    THIS VERSION DOES NOT ALLOW THE ERROR TO EXCEED 100% - IT ONLY COUNTS IF THE REFERENCE SEGMENTS ARE FOUND
+    IN THE PREDICTIONS.
+
+    Source:
+    Zhao, T., & Kawahara, T. (2019). Joint dialog act segmentation and recognition in human conversations using
+    attention to dialog context. Computer Speech & Language, 57, 108-127.
+
+    Segmentation metrics:
+
+    DSER (DA Segmentation Error Rate) computes the number of utterances whose boundaries are incorrectly predicted
+    divided by the total number of utterances. We regard it as a segment-level segmentation error rate.
+
+    Segmentation WER (Segmentation Word Error Rate) is weighted by the word counts of utterances.
+    It computes the number of tokens whose corresponding utterance boundaries are incorrectly predicted divided by the
+    total number of tokens.
+
+    Joint metrics:
+
+    DER (DA Error Rate) is similar to the DSER measure, but an utterance is considered to be correct only when its
+    boundaries and DA type are all correct.
+
+    Joint WER (Joint Word Error Rate) is similar to the Segmentation WER measure,
+    and it also requires both bound- aries and DA type to be correctly predicted.
+    """
+
+    counts = {
+        'DSER': 0,
+        'SegmentationWER': 0,
+        'DER': 0,
+        'JointWER': 0,
+    }
+    total_segments = 0
+    total_frames = 0
+
+    def build_segment_set(targets, seg_boundaries, with_labels: bool):
+        segment_set = set()
+        bounday_ind = [ind for ind,segment_flag in enumerate(seg_boundaries) if segment_flag]
+        start = 0
+        for end in bounday_ind:
+            label = targets[end] #label_map[targets[end]]
+            segment_set.add((start, end) + ((label,) if with_labels else ()))
+            start = end + 1
+        return segment_set
+
+    def targets2segmentset(targets, label_scheme, with_labels: bool):
+        '''First get segment boundaries from targets then build segment set
+        '''
+        if label_scheme == 'Exact':
+            new_targets = targets
+        elif label_scheme == 'E':
+            intermediate_label = 'I-'
+            prev_label = targets[-1]
+            new_targets = []
+            for pred in targets[::-1]:
+                if pred != intermediate_label:
+                    prev_label = pred
+                new_targets.append(prev_label)
+            new_targets = new_targets[::-1]
+        elif label_scheme == 'IE':
+            new_targets = [pred[2:] if pred.startswith('I-') else pred for pred in targets if pred.startswith('I-')]
+
+        seg_boundaries = [i!=j for i,j in zip(new_targets[1:], new_targets[:-1])]
+        seg_boundaries += [True]   # last frame/token has to be a segment boundary 
+        segments_count = sum(seg_boundaries)
+        return build_segment_set(targets, seg_boundaries, with_labels), segments_count
+
+
+    for true_utt_labels, pred_utt_labels in zip(true_labels, pred_labels):
+        true_segments, true_segments_count = targets2segmentset(true_utt_labels, label_scheme, with_labels=False)
+        pred_segments, pred_segments_count = targets2segmentset(pred_utt_labels, label_scheme, with_labels=False)
+        error_segments = true_segments - pred_segments
+        for segment in error_segments:
+            counts['DSER'] += 1
+            counts['SegmentationWER'] += segment[1] - segment[0]
+
+        true_segments, true_segments_count = targets2segmentset(true_utt_labels, label_scheme, with_labels=True)
+        pred_segments, pred_segments_count = targets2segmentset(pred_utt_labels, label_scheme, with_labels=True)
+        error_segments = true_segments - pred_segments
+        for segment in error_segments:
+            counts['DER'] += 1
+            counts['JointWER'] += segment[1] - segment[0]
+
+        total_segments += true_segments_count
+        total_frames += len(true_utt_labels)
+
+    return {
+        'DSER': counts['DSER'] / total_segments,
+        'SegmentationWER': counts['SegmentationWER'] / total_frames,
+        'DER': counts['DER'] / total_segments,
+        'JointWER': counts['JointWER'] / total_frames
+    }
 
 """
 The original Zhao-Kawahara metrics, code adapted to this codebase, is below.

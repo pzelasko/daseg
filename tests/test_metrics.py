@@ -4,8 +4,8 @@ from typing import List
 
 import pytest
 
-from daseg import DialogActCorpus, Call, FunctionalSegment
-from daseg.metrics import compute_zhao_kawahara_metrics, compute_original_zhao_kawahara_metrics
+from daseg import Call, DialogActCorpus, FunctionalSegment
+from daseg.metrics import compute_original_zhao_kawahara_metrics, compute_zhao_kawahara_metrics
 
 
 def as_labels(corpus: DialogActCorpus) -> List[List[str]]:
@@ -108,6 +108,7 @@ def test_zhao_kwahara_metrics_segment_insertion_different_label(true_dataset_ins
     assert metrics['JointWER'] == 3 / 3
 
 
+@pytest.skip("The original Zhao-Kawahara code scores this incorrectly")
 def test_original_zhao_kwahara_metrics_segment_insertion(true_dataset_ins, pred_dataset_ins):
     metrics = compute_original_zhao_kawahara_metrics(
         true_turns=as_labels(true_dataset_ins),
@@ -119,6 +120,7 @@ def test_original_zhao_kwahara_metrics_segment_insertion(true_dataset_ins, pred_
     assert metrics['JointWER'] == 3 / 3
 
 
+@pytest.skip("The original Zhao-Kawahara code scores this incorrectly")
 def test_original_zhao_kwahara_metrics_segment_insertion_different_label(true_dataset_ins, pred_dataset_ins_diff_label):
     metrics = compute_original_zhao_kawahara_metrics(
         true_turns=as_labels(true_dataset_ins),

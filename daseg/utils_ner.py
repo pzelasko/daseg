@@ -38,16 +38,17 @@ class InputExample(object):
         self.guid = guid
         self.words = words
         self.labels = labels
-
+        
 
 class InputFeatures(object):
     """A single set of features of data."""
 
-    def __init__(self, input_ids, input_mask, segment_ids, label_ids):
+    def __init__(self, input_ids=None, input_mask=None, segment_ids=None, label_ids=None, inputs_embeds=None):
         self.input_ids = input_ids
         self.input_mask = input_mask
         self.segment_ids = segment_ids
         self.label_ids = label_ids
+        self.inputs_embeds = inputs_embeds
 
 
 def read_examples_from_file(data_dir, mode):
@@ -194,6 +195,88 @@ def convert_examples_to_features(
 
         features.append(
             InputFeatures(input_ids=input_ids, input_mask=input_mask, segment_ids=segment_ids, label_ids=label_ids)
+        )
+    return features
+
+
+def convert_examples_to_features_speech(
+        examples,
+        label_list,
+        max_seq_length,
+        cls_token_at_end=False,
+        cls_token="[CLS]",
+        cls_token_segment_id=1,
+        sep_token="[SEP]",
+        sep_token_extra=False,
+        pad_on_left=False,
+        pad_token=0,
+        pad_token_segment_id=0,
+        pad_token_label_id=-100,
+        sequence_a_segment_id=0,
+        mask_padding_with_zero=True,
+):
+    """ Loads a data file into a list of `InputBatch`s
+        `cls_token_at_end` define the location of the CLS token:
+            - False (Default, BERT/XLM pattern): [CLS] + A + [SEP] + B + [SEP]
+            - True (XLNet/GPT pattern): A + [SEP] + B + [SEP] + [CLS]
+        `cls_token_segment_id` define the segment id associated to the CLS token (0 for BERT, 2 for XLNet)
+    """
+
+    label_map = {label: i for i, label in enumerate(label_list)}
+    label_map[NEW_TURN] = pad_token_label_id
+
+    features = []
+    for (ex_index, example) in enumerate(examples):
+        if ex_index % 10000 == 0:
+            logger.info("Writing example %d of %d", ex_index, len(examples))
+
+        ## TODO: Need to insert special vectors for segmentation and turn changes
+
+        # Zero-pad up to the sequence length.
+        inputs_embeds = example.features
+        label_ids = [label_map[i] for i in example.label_ids]
+        segment_ids = [0] * len(inputs_embeds)  ### TODO:Review this assignment again
+        # The mask has 1 for real tokens and 0 for padding tokens. Only real
+        # tokens are attended to.
+        input_mask = [1 if mask_padding_with_zero else 0] * len(inputs_embeds)
+
+        feat_dim = inputs_embeds.shape[-1]
+        padding_length = max_seq_length - len(inputs_embeds)
+        if padding_length > 0:
+            # Zero-pad up to the sequence length.
+            padding_matrix = np.zeros([padding_length, feat_dim])
+            padding = ([0 if mask_padding_with_zero else 1] * padding_length)
+            if pad_on_left:
+                inputs_embeds = np.concatenate([padding_matrix, inputs_embeds])
+                input_mask = ([0 if mask_padding_with_zero else 1] * padding_length) + input_mask
+                segment_ids = ([pad_token_segment_id] * padding_length) + segment_ids
+                label_ids = ([pad_token_label_id] * padding_length) + label_ids
+            else:
+                inputs_embeds = np.concatenate([inputs_embeds, padding_matrix])
+                input_mask += [0 if mask_padding_with_zero else 1] * padding_length
+                segment_ids += ([pad_token_segment_id] * padding_length)
+                label_ids += ([pad_token_label_id] * padding_length)
+        else:
+            inputs_embeds = inputs_embeds[:max_seq_length]
+            input_mask = input_mask[:max_seq_length]            
+            segment_ids = segment_ids[max_seq_length]
+
+        assert len(inputs_embeds) == max_seq_length
+        assert len(input_mask) == max_seq_length
+        assert len(segment_ids) == max_seq_length
+        assert len(label_ids) == max_seq_length
+
+        if ex_index < 5:
+            logger.info("*** Example ***")
+            logger.info("guid: %s", example.guid)
+            #logger.info("tokens: %s", " ".join([str(x) for x in tokens]))
+            logger.info("inputs_embeds: %s", " ".join([str(x) for x in inputs_embeds[:10, :10]]))
+            logger.info("input_mask: %s", " ".join([str(x) for x in input_mask]))
+            logger.info("segment_ids: %s", " ".join([str(x) for x in segment_ids]))
+            logger.info("label_ids: %s", " ".join([str(x) for x in label_ids]))
+
+        features.append(
+            InputFeatures(inputs_embeds=inputs_embeds, input_mask=input_mask, segment_ids=segment_ids, label_ids=label_ids)
         )
     return features
 

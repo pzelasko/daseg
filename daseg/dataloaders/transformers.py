@@ -2,6 +2,7 @@ import warnings
 from functools import partial
 from itertools import chain
 from typing import Iterable, Optional, List
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -11,9 +12,11 @@ from transformers import PreTrainedTokenizer
 
 from daseg import DialogActCorpus, Call
 from daseg.utils_ner import InputExample, convert_examples_to_features
-
+import pandas as pd
 
 def as_windows(call: Call, max_length: int, tokenizer: PreTrainedTokenizer, use_joint_coding: bool) -> Iterable[Call]:
+    '''It's a generator that yields segments of length max_length from the input transcript
+    '''
     if not use_joint_coding:
         warnings.warn('Call windows are not available when joint coding is turned off. Some calls will be truncated.')
         return [call]
@@ -109,6 +112,1120 @@ def to_dataset(
     dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
     dataset.pad_token = pad_token
     return dataset
+         
+
+def to_speech_dataloader(
+        data_dir: list,
+        batch_size: int,
+        max_sequence_length: int,
+        frame_len: float,
+        target_label_encoder,
+        train_mode: str,
+        segmentation_type: str,
+        concat_aug: int, 
+        test_file: str):
+
+    from daseg.dataloader_speech import collate_fn
+    from daseg.dataloader_speech import get_dataset, ConcatDataset_SidebySide, ConcatDataset_SidebySide_EqualizingLength
+
+    padding_value_features = 0
+    mask_padding_with_zero = 1
+    padding_value_mask = 0 if mask_padding_with_zero else 1
+    
+    if len(data_dir) > 1:
+        print(f'multiple data_dir is not supported for tasks other than EmoSpot')
+        sys.exit()
+    else:
+        data_dir = data_dir[0]
+
+    data_loaders = {}
+    feat_dim = None
+    if (train_mode == 'TE') or (train_mode == 'T'):
+        train_cfn = partial(collate_fn, max_len=max_sequence_length, split='train',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=concat_aug, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len, 
+                                segmentation_type=segmentation_type)
+        dev_cfn = partial(collate_fn, max_len=max_sequence_length, split='dev',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=-1, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len,
+                                segmentation_type=segmentation_type)
+        ## while getting the datasets, it's important to put max_len=None for atleast frame-based classification
+        ## because you make the labels in the collate_fn
+        train_ds = get_dataset(data_dir, data_csv=data_dir+'/' + 'train' + '.tsv', max_len=None)
+        train_ds = [train_ds]
+        train_ds = ConcatDataset_SidebySide(*train_ds)
+
+        dev_ds = get_dataset(data_dir, data_csv=data_dir+'/' + 'dev' + '.tsv', max_len=None)
+        print(f'train dataset length is {len(train_ds)}')
+        print(f'dev dataset length is {len(dev_ds)}')
+
+        train_sampler = RandomSampler(train_ds)
+        dev_sampler = SequentialSampler(dev_ds)
+        train_dataloader = DataLoader(train_ds, sampler=train_sampler, batch_size=batch_size, collate_fn=train_cfn, drop_last=True)
+        dev_dataloader = DataLoader(dev_ds, sampler=dev_sampler, batch_size=1, collate_fn=dev_cfn)
+        data_loaders['train'] = train_dataloader
+        data_loaders['dev'] = dev_dataloader
+        ## get feat_dim
+        batch = next(iter(train_dataloader))
+        feat_dim = batch[0].shape[-1] 
+
+    if (train_mode == 'TE') or (train_mode == 'E'):
+        test_cfn = partial(collate_fn, max_len=None, split='test',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=-1, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len,
+                                segmentation_type=segmentation_type)
+        if test_file == 'test.tsv':
+            test_file = data_dir+ '/' + test_file
+        print(f'loading {test_file} for evaluating the model')
+        test_ds = get_dataset(data_dir, data_csv=test_file, max_len=None)
+        test_sampler = SequentialSampler(test_ds)
+        test_dataloader = DataLoader(test_ds, sampler=test_sampler, batch_size=1, collate_fn=test_cfn)
+    
+        data_loaders['test'] = test_dataloader
+        print(f'test dataset length is {len(test_ds)}')
+        ## get feat_dim
+        batch = next(iter(test_dataloader))
+        feat_dim_test = batch[0].shape[-1] 
+        if feat_dim is not None:
+            assert feat_dim_test == feat_dim
+        else:
+            feat_dim = feat_dim_test
+
+    for split in ['train', 'dev', 'test']:
+        if not split in data_loaders:
+            data_loaders[split] = None
+
+        else:
+            print(f'\n printing few samples from the split {split} for debugging purposes \n')
+            for step,data in enumerate(data_loaders[split]):
+                print(data[0].shape, data[1].shape, data[2].shape)
+                print(data)
+                if step > 3:
+                    break
+
+
+    #import pdb; pdb.set_trace()
+    #print('train')
+    #for step,data in enumerate(train_dataloader):
+    #    print(data[0].shape, data[1].shape, data[2].shape)
+    #    #break
+    #print('dev')
+    #for step,data in enumerate(dev_dataloader):
+    #    print(data[0].shape, data[1].shape, data[2].shape)
+    #    #break
+    #print('test')
+    #for step,data in enumerate(test_dataloader):
+    #    print(data[0].shape, data[1].shape, data[2].shape)
+    #    break
+ 
+    return data_loaders, feat_dim
+
+
+def to_speech_dataloader_SeqClassification(
+        data_dir: list,
+        batch_size: int,
+        max_sequence_length: int,
+        frame_len: float,
+        target_label_encoder,
+        train_mode: str,
+        segmentation_type: str,
+        concat_aug: int, 
+        test_file: str):
+        
+    from daseg.dataloader_speech_SeqClassification import collate_fn_SeqClassification as collate_fn
+    from daseg.dataloader_speech_SeqClassification import get_dataset, ConcatDataset_SidebySide, ConcatDataset_SidebySide_EqualizingLength
+
+    padding_value_features = 0
+    mask_padding_with_zero = 1
+    padding_value_mask = 0 if mask_padding_with_zero else 1
+    
+    if len(data_dir) > 1:
+        print(f'multiple data_dir is not supported for tasks other than EmoSpot')
+        sys.exit()
+    else:
+        data_dir = data_dir[0]
+
+    data_loaders = {}
+    feat_dim = None
+    if (train_mode == 'TE') or (train_mode == 'T'):
+        train_cfn = partial(collate_fn, max_len=max_sequence_length, split='train',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=concat_aug, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len, 
+                                segmentation_type=segmentation_type)
+        dev_cfn = partial(collate_fn, max_len=max_sequence_length, split='dev',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=-1, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len,
+                                segmentation_type=segmentation_type)
+        ## while getting the datasets, it's important to put max_len=None for atleast frame-based classification
+        ## because you make the labels in the collate_fn
+        train_ds = get_dataset(data_dir, data_csv=data_dir+'/' + 'train' + '.tsv', max_len=None)
+        train_ds = [train_ds]
+        train_ds = ConcatDataset_SidebySide(*train_ds)
+
+        dev_ds = get_dataset(data_dir, data_csv=data_dir+'/' + 'dev' + '.tsv', max_len=None)
+        print(f'train dataset length is {len(train_ds)}')
+        print(f'dev dataset length is {len(dev_ds)}')
+
+        train_sampler = RandomSampler(train_ds)
+        dev_sampler = SequentialSampler(dev_ds)
+        train_dataloader = DataLoader(train_ds, sampler=train_sampler, batch_size=batch_size, collate_fn=train_cfn, drop_last=True)
+        dev_dataloader = DataLoader(dev_ds, sampler=dev_sampler, batch_size=1, collate_fn=dev_cfn)
+        data_loaders['train'] = train_dataloader
+        data_loaders['dev'] = dev_dataloader
+        ## get feat_dim
+        batch = next(iter(train_dataloader))
+        feat_dim = batch[0].shape[-1] 
+
+    if (train_mode == 'TE') or (train_mode == 'E'):
+        test_cfn = partial(collate_fn, max_len=None, split='test',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=-1, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len,
+                                segmentation_type=segmentation_type)
+        if test_file == 'test.tsv':
+            test_file = data_dir+ '/' + test_file
+        print(f'loading {test_file} for evaluating the model')
+        test_ds = get_dataset(data_dir, data_csv=test_file, max_len=None)
+        test_sampler = SequentialSampler(test_ds)
+        test_dataloader = DataLoader(test_ds, sampler=test_sampler, batch_size=1, collate_fn=test_cfn)
+    
+        data_loaders['test'] = test_dataloader
+        print(f'test dataset length is {len(test_ds)}')
+        ## get feat_dim
+        batch = next(iter(test_dataloader))
+        feat_dim_test = batch[0].shape[-1] 
+        if feat_dim is not None:
+            assert feat_dim_test == feat_dim
+        else:
+            feat_dim = feat_dim_test
+
+    for split in ['train', 'dev', 'test']:
+        if not split in data_loaders:
+            data_loaders[split] = None
+        
+
+    #import pdb; pdb.set_trace()
+    #print('train')
+    #for step,data in enumerate(train_dataloader):
+    #    print(data[0].shape, data[1].shape, data[2].shape)
+    #    #break
+    #print('dev')
+    #for step,data in enumerate(dev_dataloader):
+    #    print(data[0].shape, data[1].shape, data[2].shape)
+    #    #break
+    #print('test')
+    #for step,data in enumerate(test_dataloader):
+    #    print(data[0].shape, data[1].shape, data[2].shape)
+    #    break
+ 
+    return data_loaders, feat_dim
+
+def EmoSpot_speech_dataloader(
+        data_dir: list,
+        batch_size: int,
+        max_sequence_length: int,
+        frame_len: float,
+        target_label_encoder,
+        train_mode: str,
+        segmentation_type: str,
+        concat_aug: int):
+
+    from daseg.dataloader_speech import collate_fn
+    from daseg.dataloader_speech import get_dataset, ConcatDataset_SidebySide, collate_fn_EmoSpot, ConcatDataset_SidebySide_EqualizingLength
+
+   
+    padding_value_features = 0
+    mask_padding_with_zero = 1
+    padding_value_mask = 0 if mask_padding_with_zero else 1
+         
+    data_loaders = {}
+    feat_dim = None
+    if (train_mode == 'TE') or (train_mode == 'T'):
+        train_cfn = partial(collate_fn_EmoSpot, max_len=max_sequence_length, split='train',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=concat_aug, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len, 
+                                segmentation_type=segmentation_type)
+        dev_cfn = partial(collate_fn, max_len=max_sequence_length, split='dev',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=-1, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len,
+                                segmentation_type=segmentation_type)
+        ## while getting the datasets, it's important to put max_len=None for atleast frame-based classification
+        ## because you make the labels in the collate_fn
+
+        train_ds = []
+        for data_dir_temp in data_dir:
+            train_ds.append(get_dataset(data_dir_temp, data_csv=data_dir_temp+'/' + 'train' + '.tsv', max_len=None))
+
+        train_ds = ConcatDataset_SidebySide_EqualizingLength(*train_ds)
+
+        data_dir_temp = data_dir[0]
+        dev_ds = get_dataset(data_dir_temp, data_csv=data_dir_temp+'/' + 'dev' + '.tsv', max_len=None)
+        print(f'train dataset length is {len(train_ds)}')
+        print(f'dev dataset length is {len(dev_ds)}')
+
+        train_sampler = RandomSampler(train_ds)
+        dev_sampler = SequentialSampler(dev_ds)
+        train_dataloader = DataLoader(train_ds, sampler=train_sampler, batch_size=batch_size, collate_fn=train_cfn, drop_last=True)
+        dev_dataloader = DataLoader(dev_ds, sampler=dev_sampler, batch_size=1, collate_fn=dev_cfn)
+        data_loaders['train'] = train_dataloader
+        data_loaders['dev'] = dev_dataloader
+        ## get feat_dim
+        batch = next(iter(train_dataloader))
+        feat_dim = batch[0].shape[-1] 
+
+    if (train_mode == 'TE') or (train_mode == 'E'):
+        test_cfn = partial(collate_fn, max_len=None, split='test',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=-1, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len,
+                                segmentation_type=segmentation_type)
+        data_dir_temp = data_dir[0]
+        test_ds = get_dataset(data_dir_temp, data_csv=data_dir_temp+'/' + 'test' + '.tsv', max_len=None)
+        test_sampler = SequentialSampler(test_ds)
+        test_dataloader = DataLoader(test_ds, sampler=test_sampler, batch_size=1, collate_fn=test_cfn)
+    
+        data_loaders['test'] = test_dataloader
+        print(f'test dataset length is {len(test_ds)}')
+        ## get feat_dim
+        batch = next(iter(test_dataloader))
+        feat_dim_test = batch[0].shape[-1] 
+        if feat_dim is not None:
+            assert feat_dim_test == feat_dim
+        else:
+            feat_dim = feat_dim_test
+
+
+    for split in ['train', 'dev', 'test']:
+        if not split in data_loaders:
+            data_loaders[split] = None
+
+    batch = next(iter(train_dataloader))
+    feat_dim = batch[0].shape[-1] 
+
+    #import pdb; pdb.set_trace()
+    #for step,data in enumerate(train_dataloader):
+    #    #print(data[0].shape, data[1].shape, data[2].shape)
+    #    print(step)
+    #    #break
+    #import pdb; pdb.set_trace()
+    #for step,data in enumerate(dev_dataloader):
+    #    print(data[0].shape, data[1].shape, data[2].shape)
+    #    #break
+  
+    return data_loaders, feat_dim
+
+
+def to_text_dataloader(
+        data_dir: list,
+        batch_size: int,
+        max_sequence_length: int,
+        frame_len: float,
+        target_label_encoder,
+        train_mode: str,
+        segmentation_type: str,
+        concat_aug: int, 
+        test_file: str, 
+        tokenizer):
+
+    from daseg.dataloader_text import ConcatDataset_SidebySide, ConcatDataset_SidebySide_EqualizingLength
+    from daseg.dataloader_text import collate_fn_text, get_dataset_text
+
+    padding_value_features = 0
+    mask_padding_with_zero = 1
+    padding_value_mask = 0 if mask_padding_with_zero else 1
+    
+    if len(data_dir) > 1:
+        print(f'multiple data_dir is not supported for tasks other than EmoSpot')
+        sys.exit()
+    else:
+        data_dir = data_dir[0]
+
+    data_loaders = {}
+    feat_dim = None
+    if (train_mode == 'TE') or (train_mode == 'T'):
+        train_cfn = partial(collate_fn_text, max_len=max_sequence_length, split='train',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=concat_aug, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len, 
+                                segmentation_type=segmentation_type,
+                                tokenizer=tokenizer)
+        dev_cfn = partial(collate_fn_text, max_len=max_sequence_length, split='dev',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=-1, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len,
+                                segmentation_type=segmentation_type,
+                                tokenizer=tokenizer)
+        ## while getting the datasets, it's important to put max_len=None for atleast frame-based classification
+        ## because you make the labels in the collate_fn
+        train_ds = get_dataset_text(data_dir, data_csv=data_dir+'/' + 'train' + '.tsv', max_len=None)
+        train_ds = [train_ds]
+        train_ds = ConcatDataset_SidebySide(*train_ds)
+
+        dev_ds = get_dataset_text(data_dir, data_csv=data_dir+'/' + 'dev' + '.tsv', max_len=None)
+        print(f'train dataset length is {len(train_ds)}')
+        print(f'dev dataset length is {len(dev_ds)}')
+
+        train_sampler = RandomSampler(train_ds)
+        dev_sampler = SequentialSampler(dev_ds)
+        train_dataloader = DataLoader(train_ds, sampler=train_sampler, batch_size=batch_size, collate_fn=train_cfn, drop_last=True)
+        dev_dataloader = DataLoader(dev_ds, sampler=dev_sampler, batch_size=1, collate_fn=dev_cfn)
+        data_loaders['train'] = train_dataloader
+        data_loaders['dev'] = dev_dataloader
+        ## get feat_dim
+        feat_dim = None
+        #batch = next(iter(train_dataloader))
+        #feat_dim = batch[0].shape[-1] 
+
+    if (train_mode == 'TE') or (train_mode == 'E'):
+        test_cfn = partial(collate_fn_text, max_len=None, split='test',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=-1, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len,
+                                segmentation_type=segmentation_type,
+                                tokenizer=tokenizer)
+        if test_file == 'test.tsv':
+            test_file = data_dir+ '/' + test_file
+        print(f'loading {test_file} for evaluating the model')
+        test_ds = get_dataset_text(data_dir, data_csv=test_file, max_len=None)
+        test_sampler = SequentialSampler(test_ds)
+        test_dataloader = DataLoader(test_ds, sampler=test_sampler, batch_size=1, collate_fn=test_cfn)
+    
+        data_loaders['test'] = test_dataloader
+        print(f'test dataset length is {len(test_ds)}')
+        ## get feat_dim
+        batch = next(iter(test_dataloader))
+        feat_dim_test = batch[0].shape[-1] 
+        feat_dim = None
+        #if feat_dim is not None:
+        #    assert feat_dim_test == feat_dim
+        #else:
+        #    feat_dim = feat_dim_test
+
+    #import pdb; pdb.set_trace()
+    for split in ['train', 'dev', 'test']:
+        if not split in data_loaders:
+            data_loaders[split] = None
+        
+        else:
+            print(f'\n printing few samples from the split {split} for debugging purposes \n')
+            for step,data in enumerate(data_loaders[split]):
+                print(data[0].shape, data[1].shape, data[2].shape)
+                print(data)
+                if step > 3:
+                    break
+
+    return data_loaders, feat_dim
+
+
+def to_text_TrueCasingTokenClassif_dataloader(
+        data_dir: list,
+        batch_size: int,
+        max_sequence_length: int,
+        frame_len: float,
+        target_label_encoder,
+        train_mode: str,
+        segmentation_type: str,
+        concat_aug: int, 
+        test_file: str, 
+        tokenizer):
+
+    from daseg.dataloader_text_TrueCasing import ConcatDataset_SidebySide, ConcatDataset_SidebySide_EqualizingLength, collate_fn_text_TrueCasing, get_dataset_text_TrueCasing
+
+    padding_value_features = 0
+    mask_padding_with_zero = 1
+    padding_value_mask = 0 if mask_padding_with_zero else 1
+    
+    if len(data_dir) > 1:
+        print(f'multiple data_dir is not supported for tasks other than EmoSpot')
+        sys.exit()
+    else:
+        data_dir = data_dir[0]
+
+    data_loaders = {}
+    feat_dim = None
+    if (train_mode == 'TE') or (train_mode == 'T'):
+        train_cfn = partial(collate_fn_text_TrueCasing, max_len=max_sequence_length, split='train',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=concat_aug, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len, 
+                                segmentation_type=segmentation_type,
+                                tokenizer=tokenizer)
+        dev_cfn = partial(collate_fn_text_TrueCasing, max_len=max_sequence_length, split='dev',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=-1, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len,
+                                segmentation_type=segmentation_type,
+                                tokenizer=tokenizer)
+        ## while getting the datasets, it's important to put max_len=None for atleast frame-based classification
+        ## because you make the labels in the collate_fn
+        train_ds = get_dataset_text_TrueCasing(data_dir, data_csv=data_dir+'/' + 'train' + '.tsv', max_len=None)
+        train_ds = [train_ds]
+        train_ds = ConcatDataset_SidebySide(*train_ds)
+
+        dev_ds = get_dataset_text_TrueCasing(data_dir, data_csv=data_dir+'/' + 'dev' + '.tsv', max_len=None)
+        print(f'train dataset length is {len(train_ds)}')
+        print(f'dev dataset length is {len(dev_ds)}')
+
+        train_sampler = RandomSampler(train_ds)
+        dev_sampler = SequentialSampler(dev_ds)
+        train_dataloader = DataLoader(train_ds, sampler=train_sampler, batch_size=batch_size, collate_fn=train_cfn, drop_last=True)
+        dev_dataloader = DataLoader(dev_ds, sampler=dev_sampler, batch_size=1, collate_fn=dev_cfn)
+        data_loaders['train'] = train_dataloader
+        data_loaders['dev'] = dev_dataloader
+        ## get feat_dim
+        feat_dim = None
+        #batch = next(iter(train_dataloader))
+        #feat_dim = batch[0].shape[-1] 
+
+    if (train_mode == 'TE') or (train_mode == 'E'):
+        test_cfn = partial(collate_fn_text_TrueCasing, max_len=None, split='test',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=-1, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len,
+                                segmentation_type=segmentation_type,
+                                tokenizer=tokenizer)
+        if test_file == 'test.tsv':
+            test_file = data_dir+ '/' + test_file
+        print(f'loading {test_file} for evaluating the model')
+        test_ds = get_dataset_text_TrueCasing(data_dir, data_csv=test_file, max_len=None)
+        test_sampler = SequentialSampler(test_ds)
+        test_dataloader = DataLoader(test_ds, sampler=test_sampler, batch_size=1, collate_fn=test_cfn)
+    
+        data_loaders['test'] = test_dataloader
+        print(f'test dataset length is {len(test_ds)}')
+        ## get feat_dim
+        batch = next(iter(test_dataloader))
+        feat_dim = None
+
+    for split in ['train', 'dev', 'test']:
+        if not split in data_loaders:
+            data_loaders[split] = None
+        
+        else:
+            pass
+            print(f'\n printing few samples from the split {split} for debugging purposes \n')
+            for step,data in enumerate(data_loaders[split]):
+                print(data)
+                if step > 3:
+                    break
+
+    return data_loaders, feat_dim
+
+
+def to_text_PunctuationTokenClassif_dataloader(
+        data_dir: list,
+        batch_size: int,
+        max_sequence_length: int,
+        frame_len: float,
+        target_label_encoder,
+        train_mode: str,
+        segmentation_type: str,
+        concat_aug: int, 
+        test_file: str, 
+        tokenizer):
+
+    from daseg.dataloader_text_TrueCasing import ConcatDataset_SidebySide, ConcatDataset_SidebySide_EqualizingLength, collate_fn_text_Punctuation, get_dataset_text_TrueCasing
+
+    padding_value_features = 0
+    mask_padding_with_zero = 1
+    padding_value_mask = 0 if mask_padding_with_zero else 1
+    
+    if len(data_dir) > 1:
+        print(f'multiple data_dir is not supported for tasks other than EmoSpot')
+        sys.exit()
+    else:
+        data_dir = data_dir[0]
+
+    data_loaders = {}
+    feat_dim = None
+    if (train_mode == 'TE') or (train_mode == 'T'):
+        train_cfn = partial(collate_fn_text_Punctuation, max_len=max_sequence_length, split='train',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=concat_aug, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len, 
+                                segmentation_type=segmentation_type,
+                                tokenizer=tokenizer)
+        dev_cfn = partial(collate_fn_text_Punctuation, max_len=max_sequence_length, split='dev',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=-1, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len,
+                                segmentation_type=segmentation_type,
+                                tokenizer=tokenizer)
+        ## while getting the datasets, it's important to put max_len=None for atleast frame-based classification
+        ## because you make the labels in the collate_fn
+        train_ds = get_dataset_text_TrueCasing(data_dir, data_csv=data_dir+'/' + 'train' + '.tsv', max_len=None)
+        train_ds = [train_ds]
+        train_ds = ConcatDataset_SidebySide(*train_ds)
+
+        dev_ds = get_dataset_text_TrueCasing(data_dir, data_csv=data_dir+'/' + 'dev' + '.tsv', max_len=None)
+        print(f'train dataset length is {len(train_ds)}')
+        print(f'dev dataset length is {len(dev_ds)}')
+
+        train_sampler = RandomSampler(train_ds)
+        dev_sampler = SequentialSampler(dev_ds)
+        train_dataloader = DataLoader(train_ds, sampler=train_sampler, batch_size=batch_size, collate_fn=train_cfn, drop_last=True)
+        dev_dataloader = DataLoader(dev_ds, sampler=dev_sampler, batch_size=1, collate_fn=dev_cfn)
+        data_loaders['train'] = train_dataloader
+        data_loaders['dev'] = dev_dataloader
+        ## get feat_dim
+        feat_dim = None
+        #batch = next(iter(train_dataloader))
+        #feat_dim = batch[0].shape[-1] 
+
+    if (train_mode == 'TE') or (train_mode == 'E'):
+        test_cfn = partial(collate_fn_text_Punctuation, max_len=None, split='test',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=-1, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len,
+                                segmentation_type=segmentation_type,
+                                tokenizer=tokenizer)
+        if test_file == 'test.tsv':
+            test_file = data_dir+ '/' + test_file
+        print(f'loading {test_file} for evaluating the model')
+        test_ds = get_dataset_text_TrueCasing(data_dir, data_csv=test_file, max_len=None)
+        test_sampler = SequentialSampler(test_ds)
+        test_dataloader = DataLoader(test_ds, sampler=test_sampler, batch_size=1, collate_fn=test_cfn)
+    
+        data_loaders['test'] = test_dataloader
+        print(f'test dataset length is {len(test_ds)}')
+        ## get feat_dim
+        batch = next(iter(test_dataloader))
+        feat_dim = None
+
+    for split in ['train', 'dev', 'test']:
+        if not split in data_loaders:
+            data_loaders[split] = None
+        
+        else:
+            pass
+            print(f'\n printing few samples from the split {split} for debugging purposes \n')
+            for step,data in enumerate(data_loaders[split]):
+                print(data)
+                if step > 3:
+                    break
+
+    return data_loaders, feat_dim
+
+
+
+def to_text_TrueCasingPunctuationTokenClassif_dataloader(
+        data_dir: list,
+        batch_size: int,
+        max_sequence_length: int,
+        frame_len: float,
+        target_label_encoder,
+        train_mode: str,
+        segmentation_type: str,
+        concat_aug: int, 
+        test_file: str, 
+        tokenizer):
+
+    from daseg.dataloader_text_TrueCasingPunctuation import ConcatDataset_SidebySide, ConcatDataset_SidebySide_EqualizingLength, collate_fn_text_TrueCasingPunctuation, get_dataset_text_TrueCasing
+
+    padding_value_features = 0
+    mask_padding_with_zero = 1
+    padding_value_mask = 0 if mask_padding_with_zero else 1
+    
+    if len(data_dir) > 1:
+        print(f'multiple data_dir is not supported for tasks other than EmoSpot')
+        sys.exit()
+    else:
+        data_dir = data_dir[0]
+
+    data_loaders = {}
+    feat_dim = None
+    if (train_mode == 'TE') or (train_mode == 'T'):
+        train_cfn = partial(collate_fn_text_TrueCasingPunctuation, max_len=max_sequence_length, split='train',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=concat_aug, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len, 
+                                segmentation_type=segmentation_type,
+                                tokenizer=tokenizer)
+        dev_cfn = partial(collate_fn_text_TrueCasingPunctuation, max_len=max_sequence_length, split='dev',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=-1, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len,
+                                segmentation_type=segmentation_type,
+                                tokenizer=tokenizer)
+        ## while getting the datasets, it's important to put max_len=None for atleast frame-based classification
+        ## because you make the labels in the collate_fn
+        train_ds = get_dataset_text_TrueCasing(data_dir, data_csv=data_dir+'/' + 'train' + '.tsv', max_len=None)
+        train_ds = [train_ds]
+        train_ds = ConcatDataset_SidebySide(*train_ds)
+
+        dev_ds = get_dataset_text_TrueCasing(data_dir, data_csv=data_dir+'/' + 'dev' + '.tsv', max_len=None)
+        print(f'train dataset length is {len(train_ds)}')
+        print(f'dev dataset length is {len(dev_ds)}')
+
+        train_sampler = RandomSampler(train_ds)
+        dev_sampler = SequentialSampler(dev_ds)
+        train_dataloader = DataLoader(train_ds, sampler=train_sampler, batch_size=batch_size, collate_fn=train_cfn, drop_last=True)
+        dev_dataloader = DataLoader(dev_ds, sampler=dev_sampler, batch_size=1, collate_fn=dev_cfn)
+        data_loaders['train'] = train_dataloader
+        data_loaders['dev'] = dev_dataloader
+        ## get feat_dim
+        feat_dim = None
+        #batch = next(iter(train_dataloader))
+        #feat_dim = batch[0].shape[-1] 
+
+    if (train_mode == 'TE') or (train_mode == 'E'):
+        test_cfn = partial(collate_fn_text_TrueCasingPunctuation, max_len=None, split='test',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=-1, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len,
+                                segmentation_type=segmentation_type,
+                                tokenizer=tokenizer)
+        if test_file == 'test.tsv':
+            test_file = data_dir+ '/' + test_file
+        print(f'loading {test_file} for evaluating the model')
+        test_ds = get_dataset_text_TrueCasing(data_dir, data_csv=test_file, max_len=None)
+        test_sampler = SequentialSampler(test_ds)
+        test_dataloader = DataLoader(test_ds, sampler=test_sampler, batch_size=1, collate_fn=test_cfn)
+    
+        data_loaders['test'] = test_dataloader
+        print(f'test dataset length is {len(test_ds)}')
+        ## get feat_dim
+        batch = next(iter(test_dataloader))
+        feat_dim = None
+
+    for split in ['train', 'dev', 'test']:
+        if not split in data_loaders:
+            data_loaders[split] = None
+        
+        else:
+            pass
+            print(f'\n printing few samples from the split {split} for debugging purposes \n')
+            for step,data in enumerate(data_loaders[split]):
+                print(data)
+                if step > 5:
+                    break
+
+    return data_loaders, feat_dim
+
+
+def to_text_TrueCasingPunctuationTokenClassif_Morethan2Tasks_dataloader(
+        data_dir: list,
+        batch_size: int,
+        max_sequence_length: int,
+        frame_len: float,
+        target_label_encoder,
+        train_mode: str,
+        segmentation_type: str,
+        concat_aug: int, 
+        test_file: str, 
+        tokenizer):
+
+    from daseg.dataloader_text_TrueCasingPunctuation import ConcatDataset_SidebySide, ConcatDataset_SidebySide_EqualizingLength, collate_fn_text_TrueCasingPunctuation_Morethan2Tasks, get_dataset_text_TrueCasing
+
+    padding_value_features = 0
+    mask_padding_with_zero = 1
+    padding_value_mask = 0 if mask_padding_with_zero else 1
+    
+    if len(data_dir) > 1:
+        print(f'multiple data_dir is not supported for tasks other than EmoSpot')
+        sys.exit()
+    else:
+        data_dir = data_dir[0]
+
+    data_loaders = {}
+    feat_dim = None
+    if (train_mode == 'TE') or (train_mode == 'T'):
+        train_cfn = partial(collate_fn_text_TrueCasingPunctuation_Morethan2Tasks, max_len=max_sequence_length, split='train',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=concat_aug, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len, 
+                                segmentation_type=segmentation_type,
+                                tokenizer=tokenizer)
+        dev_cfn = partial(collate_fn_text_TrueCasingPunctuation_Morethan2Tasks, max_len=max_sequence_length, split='dev',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=-1, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len,
+                                segmentation_type=segmentation_type,
+                                tokenizer=tokenizer)
+        ## while getting the datasets, it's important to put max_len=None for atleast frame-based classification
+        ## because you make the labels in the collate_fn
+        train_ds = get_dataset_text_TrueCasing(data_dir, data_csv=data_dir+'/' + 'train' + '.tsv', max_len=None)
+        train_ds = [train_ds]
+        train_ds = ConcatDataset_SidebySide(*train_ds)
+
+        dev_ds = get_dataset_text_TrueCasing(data_dir, data_csv=data_dir+'/' + 'dev' + '.tsv', max_len=None)
+        print(f'train dataset length is {len(train_ds)}')
+        print(f'dev dataset length is {len(dev_ds)}')
+
+        train_sampler = RandomSampler(train_ds)
+        dev_sampler = SequentialSampler(dev_ds)
+        train_dataloader = DataLoader(train_ds, sampler=train_sampler, batch_size=batch_size, collate_fn=train_cfn, drop_last=True)
+        dev_dataloader = DataLoader(dev_ds, sampler=dev_sampler, batch_size=1, collate_fn=dev_cfn)
+        data_loaders['train'] = train_dataloader
+        data_loaders['dev'] = dev_dataloader
+        ## get feat_dim
+        feat_dim = None
+        #batch = next(iter(train_dataloader))
+        #feat_dim = batch[0].shape[-1] 
+
+    if (train_mode == 'TE') or (train_mode == 'E'):
+        test_cfn = partial(collate_fn_text_TrueCasingPunctuation_Morethan2Tasks, max_len=None, split='test',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=-1, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len,
+                                segmentation_type=segmentation_type,
+                                tokenizer=tokenizer)
+        if test_file == 'test.tsv':
+            test_file = data_dir+ '/' + test_file
+        print(f'loading {test_file} for evaluating the model')
+        test_ds = get_dataset_text_TrueCasing(data_dir, data_csv=test_file, max_len=None)
+        test_sampler = SequentialSampler(test_ds)
+        test_dataloader = DataLoader(test_ds, sampler=test_sampler, batch_size=1, collate_fn=test_cfn)
+    
+        data_loaders['test'] = test_dataloader
+        print(f'test dataset length is {len(test_ds)}')
+        ## get feat_dim
+        batch = next(iter(test_dataloader))
+        feat_dim = None
+
+    
+
+    for split in ['train', 'dev', 'test']:
+        if not split in data_loaders:
+            data_loaders[split] = None
+        
+        else:
+            print(f'\n printing few samples from the split {split} for debugging purposes \n')
+            for step,data in enumerate(data_loaders[split]):
+                print(data)
+                if step > 5:
+                    break
+                #print(step)
+                #pass
+
+    return data_loaders, feat_dim
+
+
+def to_multimodal_dataloader_SeqClassification(
+        data_dir: list,
+        batch_size: int,
+        max_sequence_length: int,
+        frame_len: float,
+        target_label_encoder,
+        train_mode: str,
+        segmentation_type: str,
+        concat_aug: int, 
+        test_file: str, 
+        tokenizer,
+        max_len_text: int):
+
+    from daseg.dataloader_multimodal import ConcatDataset_SidebySide, ConcatDataset_SidebySide_EqualizingLength
+    from daseg.dataloader_multimodal import collate_fn_multimodal as collate_fn
+    from daseg.dataloader_multimodal import get_dataset_multimodal as get_dataset
+
+    padding_value_features = 0
+    mask_padding_with_zero = 1
+    padding_value_mask = 0 if mask_padding_with_zero else 1
+    
+    if len(data_dir) > 1:
+        print(f'multiple data_dir is not supported for tasks other than EmoSpot')
+        sys.exit()
+    else:
+        data_dir = data_dir[0]
+
+    data_loaders = {}
+    feat_dim = None
+    if (train_mode == 'TE') or (train_mode == 'T'):
+        train_cfn = partial(collate_fn, max_len=max_sequence_length, split='train',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=concat_aug, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len, 
+                                segmentation_type=segmentation_type,
+                                tokenizer=tokenizer, max_len_text=max_len_text)
+        dev_cfn = partial(collate_fn, max_len=max_sequence_length, split='dev',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=-1, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len,
+                                segmentation_type=segmentation_type,
+                                tokenizer=tokenizer, max_len_text=max_len_text)
+        ## while getting the datasets, it's important to put max_len=None for atleast frame-based classification
+        ## because you make the labels in the collate_fn
+        train_ds = get_dataset(data_dir, data_csv=data_dir+'/' + 'train' + '.tsv', max_len=None)
+        train_ds = [train_ds]
+        train_ds = ConcatDataset_SidebySide(*train_ds)
+
+        dev_ds = get_dataset(data_dir, data_csv=data_dir+'/' + 'dev' + '.tsv', max_len=None)
+        print(f'train dataset length is {len(train_ds)}')
+        print(f'dev dataset length is {len(dev_ds)}')
+
+        train_sampler = RandomSampler(train_ds)
+        dev_sampler = SequentialSampler(dev_ds)
+        train_dataloader = DataLoader(train_ds, sampler=train_sampler, batch_size=batch_size, collate_fn=train_cfn, drop_last=True)
+        dev_dataloader = DataLoader(dev_ds, sampler=dev_sampler, batch_size=1, collate_fn=dev_cfn)
+        data_loaders['train'] = train_dataloader
+        data_loaders['dev'] = dev_dataloader
+        ## get feat_dim
+        feat_dim = None
+        #batch = next(iter(train_dataloader))
+        #feat_dim = batch[0].shape[-1] 
+
+    if (train_mode == 'TE') or (train_mode == 'E'):
+        test_cfn = partial(collate_fn, max_len=None, split='test',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=-1, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len,
+                                segmentation_type=segmentation_type,
+                                tokenizer=tokenizer, max_len_text=max_len_text)
+        if test_file == 'test.tsv':
+            test_file = data_dir+ '/' + test_file
+        print(f'loading {test_file} for evaluating the model')
+        test_ds = get_dataset(data_dir, data_csv=test_file, max_len=None)
+        test_sampler = SequentialSampler(test_ds)
+        test_dataloader = DataLoader(test_ds, sampler=test_sampler, batch_size=1, collate_fn=test_cfn)
+    
+        data_loaders['test'] = test_dataloader
+        print(f'test dataset length is {len(test_ds)}')
+        ## get feat_dim
+        #batch = next(iter(test_dataloader))
+        #feat_dim_test = batch[0].shape[-1] 
+        feat_dim = None
+        #if feat_dim is not None:
+        #    assert feat_dim_test == feat_dim
+        #else:
+        #    feat_dim = feat_dim_test
+
+    for split in ['train', 'dev', 'test']:
+        if not split in data_loaders:
+            data_loaders[split] = None
+        
+
+    #import pdb; pdb.set_trace()
+    #print('train')
+    #for step,data in enumerate(train_dataloader):
+    #    print(data[0].shape, data[1].shape, data[2].shape)
+    #    #break
+    #print('dev')
+    #for step,data in enumerate(dev_dataloader):
+    #    print(data[0].shape, data[1].shape, data[2].shape)
+    #    #break
+    #print('test')
+    #for step,data in enumerate(test_dataloader):
+    #    print(data[0].shape, data[1].shape, data[2].shape)
+    #    break
+ 
+    return data_loaders, feat_dim
+
+
+def to_multimodal_multiloss_dataloader_SeqClassification(
+        data_dir: list,
+        batch_size: int,
+        max_sequence_length: int,
+        frame_len: float,
+        target_label_encoder,
+        train_mode: str,
+        segmentation_type: str,
+        concat_aug: int, 
+        test_file: str, 
+        tokenizer,
+        max_len_text: int):
+
+    from daseg.dataloader_multimodal_multiloss import ConcatDataset_SidebySide, ConcatDataset_SidebySide_EqualizingLength
+    from daseg.dataloader_multimodal_multiloss import collate_fn_multimodal_multiloss as collate_fn
+    from daseg.dataloader_multimodal_multiloss import get_dataset_multimodal as get_dataset
+    
+    extra_labels_path = '/export/b15/rpapagari/Tianzi_work/ADReSSo_NoVAD_IS2021_dataset/datainfo_diagnosis_cv10_8k.txt'
+    extra_labels = pd.read_csv(extra_labels_path, sep=',')
+    extra_labels = extra_labels[['utt_id', 'label', 'mmse']]
+    extra_labels = extra_labels.drop_duplicates()
+    extra_labels['mmse'] = extra_labels['mmse']/30
+    extra_labels.set_index('utt_id', inplace=True)
+    
+    padding_value_features = 0
+    mask_padding_with_zero = 1
+    padding_value_mask = 0 if mask_padding_with_zero else 1
+    
+    if len(data_dir) > 1:
+        print(f'multiple data_dir is not supported for tasks other than EmoSpot')
+        sys.exit()
+    else:
+        data_dir = data_dir[0]
+
+    data_loaders = {}
+    feat_dim = None
+    if (train_mode == 'TE') or (train_mode == 'T'):
+        train_cfn = partial(collate_fn, max_len=max_sequence_length, split='train',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=concat_aug, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len, 
+                                segmentation_type=segmentation_type,
+                                tokenizer=tokenizer, max_len_text=max_len_text, 
+                                extra_labels=extra_labels)
+        dev_cfn = partial(collate_fn, max_len=max_sequence_length, split='dev',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=-1, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len,
+                                segmentation_type=segmentation_type,
+                                tokenizer=tokenizer, max_len_text=max_len_text, 
+                                extra_labels=extra_labels)
+        ## while getting the datasets, it's important to put max_len=None for atleast frame-based classification
+        ## because you make the labels in the collate_fn
+        train_ds = get_dataset(data_dir, data_csv=data_dir+'/' + 'train' + '.tsv', max_len=None)
+        train_ds = [train_ds]
+        train_ds = ConcatDataset_SidebySide(*train_ds)
+
+        dev_ds = get_dataset(data_dir, data_csv=data_dir+'/' + 'dev' + '.tsv', max_len=None)
+        print(f'train dataset length is {len(train_ds)}')
+        print(f'dev dataset length is {len(dev_ds)}')
+
+        train_sampler = RandomSampler(train_ds)
+        dev_sampler = SequentialSampler(dev_ds)
+        train_dataloader = DataLoader(train_ds, sampler=train_sampler, batch_size=batch_size, collate_fn=train_cfn, drop_last=True)
+        dev_dataloader = DataLoader(dev_ds, sampler=dev_sampler, batch_size=1, collate_fn=dev_cfn)
+        data_loaders['train'] = train_dataloader
+        data_loaders['dev'] = dev_dataloader
+        ## get feat_dim
+        feat_dim = None
+        #batch = next(iter(train_dataloader))
+        #feat_dim = batch[0].shape[-1] 
+
+    if (train_mode == 'TE') or (train_mode == 'E'):
+        test_cfn = partial(collate_fn, max_len=None, split='test',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=-1, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len,
+                                segmentation_type=segmentation_type,
+                                tokenizer=tokenizer, max_len_text=max_len_text,
+                                extra_labels=extra_labels)
+        if test_file == 'test.tsv':
+            test_file = data_dir+ '/' + test_file
+        print(f'loading {test_file} for evaluating the model')
+        test_ds = get_dataset(data_dir, data_csv=test_file, max_len=None)
+        test_sampler = SequentialSampler(test_ds)
+        test_dataloader = DataLoader(test_ds, sampler=test_sampler, batch_size=1, collate_fn=test_cfn)
+    
+        data_loaders['test'] = test_dataloader
+        print(f'test dataset length is {len(test_ds)}')
+        ## get feat_dim
+        #batch = next(iter(test_dataloader))
+        #feat_dim_test = batch[0].shape[-1] 
+        feat_dim = None
+        #if feat_dim is not None:
+        #    assert feat_dim_test == feat_dim
+        #else:
+        #    feat_dim = feat_dim_test
+
+    for split in ['train', 'dev', 'test']:
+        if not split in data_loaders:
+            data_loaders[split] = None
+        
+
+    #import pdb; pdb.set_trace()
+    #print('train')
+    #for step,data in enumerate(train_dataloader):
+    #    print(data[0].shape, data[1].shape, data[2].shape)
+    #    #break
+    #print('dev')
+    #for step,data in enumerate(dev_dataloader):
+    #    print(data[0].shape, data[1].shape, data[2].shape)
+    #    #break
+    #print('test')
+    #for step,data in enumerate(test_dataloader):
+    #    print(data[0].shape, data[1].shape, data[2].shape)
+    #    break
+ 
+    return data_loaders, feat_dim
 
 
 def to_dataloader(dataset: Dataset, padding_at_start: bool, batch_size: int, train: bool = True) -> DataLoader:
