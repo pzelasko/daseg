@@ -3670,11 +3670,11 @@ class XFormerForSeqClassification(LongformerPreTrainedModel):
     def compute_loss(self, loss_fct, logits, attention_mask, labels, num_labels):
         loss = None
         if labels is not None:
-            if self.num_labels == 1:
+            if num_labels == 1:
                 #  We are doing regression
                 loss = loss_fct(logits.view(-1), labels.view(-1))
             else:
-                loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
+                loss = loss_fct(logits.view(-1, num_labels), labels.view(-1))
         return loss
 
 

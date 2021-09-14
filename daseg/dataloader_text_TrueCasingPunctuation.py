@@ -17,7 +17,7 @@ from sklearn import preprocessing
 import copy
 from daseg.utils_ner import InputExample, InputFeatures
 from ordered_set import OrderedSet
-
+import time
 
 
 def shuffle_chunks(batch_data, shuffle_ChunkLen_aug):
@@ -340,21 +340,39 @@ def to_batch_tensors_MultiLabels(batch_data_new, batch_mask_data_new, batch_labe
     #if isinstance(batch_label_new[0], list):
     if task_type == 'SeqTagging':
         # each sequence sample has a sequence of labels
-        label_names_list = list(batch_label_new.keys())
-        batch_label = {}
-        for label_name in label_names_list:
-            batch_label_new[label_name] = [torch.Tensor(i) for i in batch_label_new[label_name]]
-            batch_label[label_name] = pad_sequence(batch_label_new[label_name], padding_value=padding_value_labels).permute(1, 0)
-            batch_label[label_name] = batch_label[label_name].type(torch.LongTensor)
-    else:
-        if isinstance(batch_label_new[0], float):
-            # usually for regression tasks
-            batch_label = torch.Tensor(batch_label_new)
-            batch_label = batch_label.type(torch.FloatTensor)
+        if isinstance(batch_label_new, dict):
+            label_names_list = list(batch_label_new.keys())
+            batch_label = {}
+            for label_name in label_names_list:
+                batch_label_new[label_name] = [torch.Tensor(i) for i in batch_label_new[label_name]]
+                batch_label[label_name] = pad_sequence(batch_label_new[label_name], padding_value=padding_value_labels).permute(1, 0)
+                batch_label[label_name] = batch_label[label_name].type(torch.LongTensor)
         else:
-            ## usually for classification tasks
-            batch_label = torch.Tensor(batch_label_new)
+            batch_label_new = [torch.Tensor(i) for i in batch_label_new]
+            batch_label = pad_sequence(batch_label_new, padding_value=padding_value_labels).permute(1, 0)
             batch_label = batch_label.type(torch.LongTensor)
+
+    else:
+        if isinstance(batch_label_new, dict):
+            ## usually for multi-task models
+            label_names_list = list(batch_label_new.keys())
+            batch_label = {}
+            for label_name in label_names_list:
+                batch_label[label_name] = torch.Tensor(batch_label_new[label_name])
+                if isinstance(batch_label_new[label_name][0], float):
+                    # usually for regression tasks
+                    batch_label[label_name] = batch_label[label_name].type(torch.FloatTensor)
+                else:
+                    batch_label[label_name] = batch_label[label_name].type(torch.LongTensor)
+        else:
+            ## usually for single task models
+            batch_label = torch.Tensor(batch_label_new)
+            if isinstance(batch_label_new[0], float):
+                # usually for regression tasks
+                batch_label = batch_label.type(torch.FloatTensor)
+            else:
+                ## usually for classification tasks
+                batch_label = batch_label.type(torch.LongTensor)
     seg_boundaries_new = [torch.Tensor(i) for i in seg_boundaries_new]
     seg_boundaries_new = pad_sequence(seg_boundaries_new, padding_value=-100).permute(1, 0)
 
@@ -761,20 +779,38 @@ def obtain_text_fromcsv_TrueCasingPunctuation_Morethan2Tasks_MaxLen(tokenizer, t
     transcript = pd.read_csv(transcript_path, sep=',')
     transcript.dropna(axis=0, inplace=True)
     label_block_names = [i  for i in transcript.columns if i.startswith('label')]
+    no_tasks = len(label_block_names) # each task gets one name. Usually it's named as '0', '1', '2', ...
     utt_labels = {str(ind):[] for ind in range(len(label_block_names))}
 
     #import pdb; pdb.set_trace()
     column_names = ['original_word', 'word'] + label_block_names # if you change this order you must change the way of accessing word and its labels
 
+    
     #column_names = [column for column in transcript.columns if (column == 'word') or column.startswith('label')]
     transcript = transcript[column_names]
-
+    intermediate_label_present = 'I-' in list(transcript['label'])
     transcript = transcript.values.tolist()
 
     if (split != 'test') and (not max_len is None) and (len(transcript) > max_len):
         begin_index = random.randrange(0, len(transcript) - max_len)        
-        transcript = transcript[begin_index:begin_index+max_len]
-        
+        end_index = begin_index + max_len
+        transcript = transcript[begin_index:end_index]
+        #if intermediate_label_present:
+        #    # need to assign correct class name for the last word when you are cutting the transcripts randomly
+        #    # 'I-' is used as a label in I- label scheme.
+        #    # It is possible that in token-based classification the labels for a sentence are as follows: I- I- I- I- Boundary.
+        #    # here if we cut at I- then the model doesnt know the correct label for the words correspondong to those I- tokens
+        #    for word_label_pair in transcript[end_index:]:
+        #        word_labels = word_label_pair[2:]
+
+        #        if (word_labels[0] != 'I-') and (transcript[end_index-1][2] == 'I-'):
+        #            transcript[end_index-1][2] = word_labels[0]
+        #        if (word_labels[1] != 'I-') and (transcript[end_index-1][3] == 'I-'):
+        #            transcript[end_index-1][3] = word_labels[1]
+        #        if (transcript[end_index-1][2] != 'I-') and (transcript[end_index-1][3] != 'I-'):
+        #            break # once we assign right labels you can skip
+
+
     #utt_labels = {'label':[], 'label2':[]}
     input_ids = []
 
@@ -810,6 +846,7 @@ def obtain_text_fromcsv_TrueCasingPunctuation_Morethan2Tasks_MaxLen(tokenizer, t
 
     for task_ind in utt_labels.keys():
         assert len(utt_labels[task_ind]) == len(input_ids)
+
 
     utt_seg_boundaries = [True]*len(input_ids)
     utt_token_type_ids = [0]*len(input_ids) # for BERT
@@ -1342,11 +1379,12 @@ def get_target_encoder_TrueCasingPunctuation(train_tsv, additional_labels=[], re
         label_enc[label_name].fit(temp_train_labels)
         label_enc[label_name].label_scheme = label_scheme
  
-        print(f'num labels for model taining are {len(temp_train_labels)}')
+        print(f'num labels for model taining are {len(temp_train_labels)} and those are {temp_train_labels}')
+        time.sleep(2)
 
-    if len(label_enc) == 1:
-        label_name = list(label_enc.keys())[0]
-        label_enc = label_enc[label_name]
+    #if len(label_enc) == 1:
+    #    label_name = list(label_enc.keys())[0]
+    #    label_enc = label_enc[label_name]
     return label_enc
 
 
@@ -1839,6 +1877,7 @@ def collate_fn_text_TrueCasingPunctuation_Morethan2Tasks(batch, split = 'train',
                 batch_originalword2subtokens.append(utt_originalword2subtokens)
                 
             except:
+                #import pdb; pdb.set_trace()
                 print(f'some problem with {seq[1]} so please check')
                 # not exiting because traiing should not be stopped just because of one or few samples. During testing, model will anyway throw an error if there is any problem with data
                 #sys.exit()
@@ -1855,6 +1894,114 @@ def collate_fn_text_TrueCasingPunctuation_Morethan2Tasks(batch, split = 'train',
     batch_token_type_ids = map_tokentype_ids(batch_token_type_ids)
     batch_text = to_batch_tensors_MultiLabels(batch_data, batch_mask, batch_label, batch_seg_boundaries, batch_token_type_ids,
                         padding_value_features, padding_value_mask, padding_value_labels, split, batch_key, task_type='SeqTagging')
+    op = {}
+    model_ip_keys = ['input_ids', 'attention_mask', 'labels', 'seg_boundaries', 'token_type_ids']
+    #import pdb; pdb.set_trace()
+
+    if split == 'test':
+        model_ip_keys.append('utt_id')
+        model_ip_keys.append('originalword2subtokens')
+        batch_text = batch_text + (batch_originalword2subtokens,)
+
+    for ind,i in enumerate(batch_text):
+        temp = model_ip_keys[ind]
+        if temp == 'labels':
+            batch_labels_temp = i
+            op[temp] = []
+            for label_name in batch_labels_temp.keys():
+                op[temp].append(batch_labels_temp[label_name])
+        else:            
+            op[temp] = i
+    
+    return op
+
+
+def map_batch_labels_for_TopicSegSeqLevelClassif(batch_label, target_label_encoder):
+    boundary_class_ind = [ind for ind,i in enumerate(target_label_encoder['0'].classes_) if i == 'Boundary']
+    boundary_class_ind = boundary_class_ind[0]
+    non_boundary_class_ind = [ind for ind,i in enumerate(target_label_encoder['0'].classes_) if i != 'Boundary']
+    if len(non_boundary_class_ind) != 1:
+        raise ValueError(f'number of non-boundary clases are more than one so there could be an error in data labels')
+    else:
+        non_boundary_class_ind = non_boundary_class_ind[0]
+
+    if isinstance(batch_label, dict):
+        new_batch_label = {i:[] for i in batch_label.keys()}
+        for key in batch_label.keys():
+            for utt_label in batch_label[key]:
+                if boundary_class_ind in utt_label:
+                    new_batch_label[key].append(boundary_class_ind)
+                else:
+                    new_batch_label[key].append(non_boundary_class_ind)
+    else:
+        raise ValueError(f'nont yet implemented for single task models')
+
+    return new_batch_label
+
+
+def collate_fn_text_TopicSegSeqLevelClassif(batch, split = 'train', max_len=None, target_label_encoder=None, concat_aug=0.5, padding_value_features=0, padding_value_mask=0, padding_value_labels=0, frame_len=0.1, label_scheme='E', segmentation_type='smooth', tokenizer=None):
+    if isinstance(batch[0], tuple) and (len(batch[0]) == 1):
+        batch = [batch[i][0] for i in range(len(batch))]
+
+    batch_key = []
+    batch_data = []
+    batch_label = {i:[] for i in target_label_encoder.keys()}
+    #batch_label = {'label':[], 'label2':[]}
+    batch_length = []
+    batch_original_labels = []
+    batch_seg_boundaries = []
+    batch_token_type_ids = []
+    batch_mask = []
+    batch_size = len(batch)
+    cls_token = tokenizer.convert_tokens_to_ids('CLS')
+    
+    batch_originalword2subtokens = []
+    for seq in batch:
+        if seq[3] > 0:
+            batch_key.append(seq[0])
+            batch_original_labels.append(seq[2])
+            #import pdb; pdb.set_trace()
+            transcript_path = seq[1]
+            try:
+                if split != 'test':
+                    ## avoiding tokenizing entire doc as some times docs are very long and we don't end up using it as we cut them to max_len during training
+                    input_ids, utt_labels, utt_seg_boundaries, utt_token_type_ids, mask, utt_originalword2subtokens = obtain_text_fromcsv_TrueCasingPunctuation_Morethan2Tasks_MaxLen(tokenizer, seq[1], seq[2], target_label_encoder, split, max_len=max_len)
+                else:
+                    input_ids, utt_labels, utt_seg_boundaries, utt_token_type_ids, mask, utt_originalword2subtokens = obtain_text_fromcsv_TrueCasingPunctuation_Morethan2Tasks_MaxLen(tokenizer, seq[1], seq[2], target_label_encoder, split, max_len=None)
+                batch_data.append(input_ids)
+                for label_name in target_label_encoder.keys():
+                    batch_label[label_name].append(utt_labels[label_name])
+                batch_seg_boundaries.append(utt_seg_boundaries)
+                batch_token_type_ids.append(utt_token_type_ids)
+                batch_mask.append(mask)
+                batch_originalword2subtokens.append(utt_originalword2subtokens)
+                
+            except:
+                #import pdb; pdb.set_trace()
+                print(f'some problem with {seq[1]} so please check')
+                # not exiting because traiing should not be stopped just because of one or few samples. During testing, model will anyway throw an error if there is any problem with data
+                #sys.exit()
+
+
+    if split != 'test':
+        batch_data, batch_mask, batch_label, batch_seg_boundaries, batch_token_type_ids = cut_batch_to_maxlen_TrueCasingPunctuation(batch_data, batch_label, 
+                                                        batch_seg_boundaries, max_len, batch_token_type_ids=batch_token_type_ids, task_type='SeqTagging', batch_mask=batch_mask)
+
+        #import pdb; pdb.set_trace()    
+        batch_label = map_batch_labels_for_TopicSegSeqLevelClassif(batch_label, target_label_encoder)
+
+    
+    ## cls token may not be required for token classification tasks 
+    #batch_data, batch_mask, batch_seg_boundaries, batch_token_type_ids = append_cls_token(batch_data, batch_mask, batch_seg_boundaries, batch_token_type_ids, padding_value_mask, cls_token)
+    #import pdb; pdb.set_trace()
+    batch_token_type_ids = map_tokentype_ids(batch_token_type_ids)
+    if split != 'test':
+        batch_text = to_batch_tensors_MultiLabels(batch_data, batch_mask, batch_label, batch_seg_boundaries, batch_token_type_ids,
+                            padding_value_features, padding_value_mask, padding_value_labels, split, batch_key, task_type='SeqClassif')
+    else:
+        batch_text = to_batch_tensors_MultiLabels(batch_data, batch_mask, batch_label, batch_seg_boundaries, batch_token_type_ids,
+                            padding_value_features, padding_value_mask, padding_value_labels, split, batch_key, task_type='SeqTagging')
+
     op = {}
     model_ip_keys = ['input_ids', 'attention_mask', 'labels', 'seg_boundaries', 'token_type_ids']
     #import pdb; pdb.set_trace()

@@ -1,5 +1,8 @@
 
 
+#####################  multiple if conditions are used to allow for large set of experiments using a single wrapper code  ##############################
+#################### parameters are set for the corresponding experiments in each condition  #########################################
+
 cv=$1
 train_mode=$2
 num_gpus=${3-1}
@@ -15,6 +18,7 @@ loss_wts=${12-1_1}
 dataset=${13-fisher}
 hf_model_name=${14-bert-base-cased}
 eval_dataset=${15-None}
+gpu_ind=${16--1}
 
 
 if [[ $challenge_eval == 1 ]]
@@ -35,8 +39,7 @@ no_epochs=10
 max_sequence_length=512
 frame_len=0.01
 results_suffix=.pkl
-main_exp_dir=/export/c02/rpapagari/daseg_erc/daseg/TrueCasing_expts_data_v3
-#main_exp_dir=/export/c02/rpapagari/daseg_erc/daseg/TrueCasing_expts_data_v3_exptwts
+main_exp_dir=temp/ #/export/c02/rpapagari/daseg_erc/daseg/TrueCasing_expts_data_v3
 label_smoothing_alpha=0
 model_name=longformer_text_SeqClassification
 pre_trained_model=False
@@ -57,8 +60,7 @@ then
     no_epochs=5
     max_sequence_length=512
     model_name=truecasing_punctuation_Morethan2TasksArch_longformer_tokenclassif
-    data_dir=/export/c04/rpapagari/truecasing_work/data_v3/${dataset}_true_casing_punctuation${common_suffix}/ 
-    #suffix=_text_model_${task_name}
+    data_dir=/dih4/dih4_2/jhu/Raghu/truecasing_punctuation_data/truecasing_work/data_v3/${dataset}_true_casing_punctuation${common_suffix}/ 
     monitor_metric_mode=max
     monitor_metric=macro_f1_ave
     
@@ -71,7 +73,7 @@ then
 
     if [[ $challenge_eval == 1 ]]
     then
-        data_dir=/export/c04/rpapagari/truecasing_work/data_v3/earning21_benchmark_true_casing_punctuation${common_suffix}/
+        data_dir=/dih4/dih4_2/jhu/Raghu/truecasing_punctuation_data/truecasing_work/data_v3/earning21_benchmark_true_casing_punctuation${common_suffix}/
         test_file=${data_dir}/test.tsv
         results_suffix=earning21_benchmark.pkl
     fi
@@ -86,8 +88,7 @@ then
     max_sequence_length=256
     model_name=truecasing_punctuation_Morethan2TasksArch_longformer_tokenclassif_BERT
     hf_model_name=$hf_model_name
-    data_dir=/export/c04/rpapagari/truecasing_work/data_v3/${dataset}_true_casing_punctuation${common_suffix}/ 
-    #suffix=_text_model_${task_name}
+    data_dir=/dih4/dih4_2/jhu/Raghu/truecasing_punctuation_data/truecasing_work/data_v3/${dataset}_true_casing_punctuation${common_suffix}/
     monitor_metric_mode=max
     monitor_metric=macro_f1_ave
     
@@ -108,8 +109,6 @@ then
     if [[ $challenge_eval == 1 ]]
     then
         data_dir=/export/c04/rpapagari/truecasing_work/data_v3/${eval_dataset}_true_casing_punctuation_WOTurnToken_CombineUCandMC_8classes/
-        #data_dir=/export/c04/rpapagari/truecasing_work/data_v3/${eval_dataset}_true_casing_punctuation_WOTurnToken_CombineUCandMC_4classes/
-        #data_dir=/export/c04/rpapagari/truecasing_work/data_v3/${eval_dataset}_true_casing_punctuation${common_suffix}/
         test_file=${data_dir}/test.tsv
         results_suffix=${eval_dataset}.pkl
     fi
@@ -125,7 +124,6 @@ then
     model_name=crossdomain_truecasing_punctuation_Morethan2TasksArch_longformer_tokenclassif_BERT
     hf_model_name=$hf_model_name
     data_dir=/export/c04/rpapagari/truecasing_work/data_v3/${dataset}_true_casing_punctuation${common_suffix}/ 
-    #suffix=_text_model_${task_name}
     monitor_metric_mode=max
     monitor_metric=macro_f1_ave
 
@@ -139,9 +137,7 @@ then
 
     if [[ $challenge_eval == 1 ]]
     then
-        #data_dir=/export/c04/rpapagari/truecasing_work/data_v3/${eval_dataset}_true_casing_punctuation_WOTurnToken_CombineUCandMC_8classes/
-        data_dir=/export/c04/rpapagari/truecasing_work/data_v3/${eval_dataset}_true_casing_punctuation_WOTurnToken_CombineUCandMC_4classes/
-        #data_dir=/export/c04/rpapagari/truecasing_work/data_v3/${eval_dataset}_true_casing_punctuation${common_suffix}/
+        data_dir=/export/c04/rpapagari/truecasing_work/data_v3/${eval_dataset}_true_casing_punctuation_WOTurnToken_CombineUCandMC_8classes/
         test_file=${data_dir}/test.tsv
         results_suffix=${eval_dataset}.pkl
     fi
@@ -157,7 +153,6 @@ then
     model_name=crossdomain_truecasing_punctuation_Morethan2TasksArch_longformer_tokenclassif_BERT
     hf_model_name=$hf_model_name
     data_dir=/export/c04/rpapagari/truecasing_work/data_v3/${dataset}_true_casing_punctuation${common_suffix}/ 
-    #suffix=_text_model_${task_name}
     monitor_metric_mode=max
     monitor_metric=macro_f1_ave
 
@@ -171,9 +166,7 @@ then
 
     if [[ $challenge_eval == 1 ]]
     then
-        #data_dir=/export/c04/rpapagari/truecasing_work/data_v3/${eval_dataset}_true_casing_punctuation_WOTurnToken_CombineUCandMC_8classes/
-        data_dir=/export/c04/rpapagari/truecasing_work/data_v3/${eval_dataset}_true_casing_punctuation_WOTurnToken_CombineUCandMC_4classes/
-        #data_dir=/export/c04/rpapagari/truecasing_work/data_v3/${eval_dataset}_true_casing_punctuation${common_suffix}/
+        data_dir=/export/c04/rpapagari/truecasing_work/data_v3/${eval_dataset}_true_casing_punctuation_WOTurnToken_CombineUCandMC_8classes/
         test_file=${data_dir}/test.tsv
         results_suffix=${eval_dataset}.pkl
     fi
@@ -190,7 +183,6 @@ then
     model_name=crossdomain_truecasing_punctuation_Morethan2TasksArch_longformer_tokenclassif_BERT
     hf_model_name=$hf_model_name
     data_dir=/export/c04/rpapagari/truecasing_work/data_v3/${dataset}_true_casing_punctuation${common_suffix}/ 
-    #suffix=_text_model_${task_name}
     monitor_metric_mode=max
     monitor_metric=macro_f1_ave
 
@@ -206,8 +198,6 @@ then
     if [[ $challenge_eval == 1 ]]
     then
         data_dir=/export/c04/rpapagari/truecasing_work/data_v3/${eval_dataset}_true_casing_punctuation_WOTurnToken_CombineUCandMC_8classes/
-        #data_dir=/export/c04/rpapagari/truecasing_work/data_v3/${eval_dataset}_true_casing_punctuation_WOTurnToken_CombineUCandMC_4classes/
-        #data_dir=/export/c04/rpapagari/truecasing_work/data_v3/${eval_dataset}_true_casing_punctuation${common_suffix}/
         test_file=${data_dir}/test.tsv
         results_suffix=${eval_dataset}.pkl
     fi
@@ -223,7 +213,6 @@ then
     model_name=crossdomain_truecasing_punctuation_Morethan2TasksArch_longformer_tokenclassif_BERT
     hf_model_name=$hf_model_name
     data_dir=/export/c04/rpapagari/truecasing_work/data_v3/${dataset}_true_casing_punctuation${common_suffix}/ 
-    #suffix=_text_model_${task_name}
     monitor_metric_mode=max
     monitor_metric=macro_f1_ave
 
@@ -239,8 +228,6 @@ then
     if [[ $challenge_eval == 1 ]]
     then
         data_dir=/export/c04/rpapagari/truecasing_work/data_v3/${eval_dataset}_true_casing_punctuation_WOTurnToken_CombineUCandMC_8classes/
-        #data_dir=/export/c04/rpapagari/truecasing_work/data_v3/${eval_dataset}_true_casing_punctuation_WOTurnToken_CombineUCandMC_4classes/
-        #data_dir=/export/c04/rpapagari/truecasing_work/data_v3/${eval_dataset}_true_casing_punctuation${common_suffix}/
         test_file=${data_dir}/test.tsv
         results_suffix=${eval_dataset}.pkl
     fi

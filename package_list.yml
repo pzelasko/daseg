@@ -35,7 +35,6 @@ dependencies:
 - importlib_metadata=3.1.1=hd8ed1ab_0
 - iniconfig=1.1.1=pyh9f0ad1d_0
 - ipykernel=5.3.4=py38h81c977d_1
-- ipython=7.19.0=py38h81c977d_0
 - ipython_genutils=0.2.0=py_1
 - jedi=0.17.2=py38h578d9bd_1
 - jinja2=2.11.2=pyh9f0ad1d_0

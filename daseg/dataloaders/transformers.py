@@ -892,8 +892,7 @@ def to_text_TrueCasingPunctuationTokenClassif_Morethan2Tasks_dataloader(
     padding_value_mask = 0 if mask_padding_with_zero else 1
     
     if len(data_dir) > 1:
-        print(f'multiple data_dir is not supported for tasks other than EmoSpot')
-        sys.exit()
+        raise ValueError(f'multiple data_dir is not supported for tasks other than EmoSpot')
     else:
         data_dir = data_dir[0]
 
@@ -958,12 +957,8 @@ def to_text_TrueCasingPunctuationTokenClassif_Morethan2Tasks_dataloader(
     
         data_loaders['test'] = test_dataloader
         print(f'test dataset length is {len(test_ds)}')
-        ## get feat_dim
-        batch = next(iter(test_dataloader))
-        feat_dim = None
 
     
-
     for split in ['train', 'dev', 'test']:
         if not split in data_loaders:
             data_loaders[split] = None
@@ -978,6 +973,110 @@ def to_text_TrueCasingPunctuationTokenClassif_Morethan2Tasks_dataloader(
                 #pass
 
     return data_loaders, feat_dim
+
+
+def to_text_TopicSegSeqLevelClassif_dataloader(
+        data_dir: list,
+        batch_size: int,
+        max_sequence_length: int,
+        frame_len: float,
+        target_label_encoder,
+        train_mode: str,
+        segmentation_type: str,
+        concat_aug: int, 
+        test_file: str, 
+        tokenizer):
+
+    from daseg.dataloader_text_TrueCasingPunctuation import ConcatDataset_SidebySide, ConcatDataset_SidebySide_EqualizingLength, collate_fn_text_TopicSegSeqLevelClassif, get_dataset_text_TrueCasing
+
+    padding_value_features = 0
+    mask_padding_with_zero = 1
+    padding_value_mask = 0 if mask_padding_with_zero else 1
+    
+    if len(data_dir) > 1:
+        raise ValueError(f'multiple data_dir is not supported for tasks other than EmoSpot')
+    else:
+        data_dir = data_dir[0]
+
+    data_loaders = {}
+    feat_dim = None
+    if (train_mode == 'TE') or (train_mode == 'T'):
+        train_cfn = partial(collate_fn_text_TopicSegSeqLevelClassif, max_len=max_sequence_length, split='train',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=concat_aug, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len, 
+                                segmentation_type=segmentation_type,
+                                tokenizer=tokenizer)
+        dev_cfn = partial(collate_fn_text_TopicSegSeqLevelClassif, max_len=max_sequence_length, split='dev',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=-1, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len,
+                                segmentation_type=segmentation_type,
+                                tokenizer=tokenizer)
+        ## while getting the datasets, it's important to put max_len=None for atleast frame-based classification
+        ## because you make the labels in the collate_fn
+        train_ds = get_dataset_text_TrueCasing(data_dir, data_csv=data_dir+'/' + 'train' + '.tsv', max_len=None)
+        train_ds = [train_ds]
+        train_ds = ConcatDataset_SidebySide(*train_ds)
+
+        dev_ds = get_dataset_text_TrueCasing(data_dir, data_csv=data_dir+'/' + 'dev' + '.tsv', max_len=None)
+        print(f'train dataset length is {len(train_ds)}')
+        print(f'dev dataset length is {len(dev_ds)}')
+
+        train_sampler = RandomSampler(train_ds)
+        dev_sampler = SequentialSampler(dev_ds)
+        train_dataloader = DataLoader(train_ds, sampler=train_sampler, batch_size=batch_size, collate_fn=train_cfn, drop_last=True)
+        dev_dataloader = DataLoader(dev_ds, sampler=dev_sampler, batch_size=1, collate_fn=dev_cfn)
+        data_loaders['train'] = train_dataloader
+        data_loaders['dev'] = dev_dataloader
+        ## get feat_dim
+        feat_dim = None
+        #batch = next(iter(train_dataloader))
+        #feat_dim = batch[0].shape[-1] 
+
+    if (train_mode == 'TE') or (train_mode == 'E'):
+        test_cfn = partial(collate_fn_text_TopicSegSeqLevelClassif, max_len=None, split='test',
+                                target_label_encoder=target_label_encoder,
+                                concat_aug=-1, 
+                                padding_value_features=padding_value_features, 
+                                padding_value_mask=padding_value_mask, 
+                                padding_value_labels=CrossEntropyLoss().ignore_index, 
+                                frame_len=frame_len,
+                                segmentation_type=segmentation_type,
+                                tokenizer=tokenizer)
+        if test_file == 'test.tsv':
+            test_file = data_dir+ '/' + test_file
+        print(f'loading {test_file} for evaluating the model')
+        test_ds = get_dataset_text_TrueCasing(data_dir, data_csv=test_file, max_len=None)
+        test_sampler = SequentialSampler(test_ds)
+        test_dataloader = DataLoader(test_ds, sampler=test_sampler, batch_size=1, collate_fn=test_cfn)
+    
+        data_loaders['test'] = test_dataloader
+        print(f'test dataset length is {len(test_ds)}')
+
+    
+    for split in ['train', 'dev', 'test']:
+        if not split in data_loaders:
+            data_loaders[split] = None
+        
+        else:
+            print(f'\n printing few samples from the split {split} for debugging purposes \n')
+            for step,data in enumerate(data_loaders[split]):
+                print(data)
+                if step > 5:
+                    break
+                #print(step)
+                #pass
+
+    return data_loaders, feat_dim
+
+
 
 
 def to_multimodal_dataloader_SeqClassification(
@@ -1305,7 +1404,14 @@ def truncate_padding_collate_fn(batch: List[List[torch.Tensor]], padding_at_star
 
 
 def pad_list_of_arrays(arrays: List[np.ndarray], value: float) -> List[np.ndarray]:
-    max_out_len = max(x.shape[1] for x in arrays)
+    set_of_size_lengths = set(len(x.shape) for x in arrays)
+    if len(set_of_size_lengths) != 1:
+        raise ValueError(f'there is some inconsistency in array sizes, please check')
+
+    try:
+        max_out_len = max(x.shape[1] for x in arrays)
+    except:
+        max_out_len = max(x.shape[0] for x in arrays)
     return [pad_array(t, target_len=max_out_len, value=value) for t in arrays]
 
 

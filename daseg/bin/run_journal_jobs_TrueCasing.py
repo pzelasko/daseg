@@ -28,6 +28,7 @@ def run(cmd: str):
 
 def submit(cmd: str, name: str, work_dir: str = None, num_gpus: int = 1):
     print(cmd)
+    #import pdb; pdb.set_trace()
     if args.use_grid:
         script_path = f'{outdir()}/run_task_{name}.sh'
         script = SCRIPT_TEMPLATE.format(
@@ -58,7 +59,7 @@ def submit(cmd: str, name: str, work_dir: str = None, num_gpus: int = 1):
     if args.pause:
         input()
     elif not args.dry_run:
-        sleep(15 if num_gpus else 2)
+        sleep(2 if num_gpus else 2)
 
 
 def outdir(use_seed=True, mkdir=True):
@@ -107,12 +108,15 @@ parser.add_argument('--pretrained-model-path', default='/export/b15/rpapagari/ka
 parser.add_argument('--loss-wts', default='1,1', type=str)
 parser.add_argument('--hf-model-name', default=None, type=str)
 parser.add_argument('--pretrained-full-model-path', default=None, type=str, help='if you want to finetune crossdomain')
+parser.add_argument('--gpu-ind', default=-1, type=int, help='gpu number, useful if you are running in stndalone systems as opposed to grid')
+
 
 args = parser.parse_args()
 
+
 SCRIPT_TEMPLATE = """#!/usr/bin/env bash
 source /home/rpapagari/.bashrc
-source activate daseg_v2
+source activate topic_seg
 export CUDA_VISIBLE_DEVICES=$(free-gpu -n {num_gpus})
 cd {work_dir}
 {cmd}
@@ -120,35 +124,8 @@ cd {work_dir}
 
 QSUB_TEMPLATE = "qsub -l \"hostname=!c01*&!c24*&c*,gpu={num_gpus},mem_free={mem}G,ram_free={mem}G\" -q {queue} -e {logerr} -o {logout} -N {name} {script}"
 
-WORK_DIR = '/export/c02/rpapagari/daseg_erc/daseg'
+WORK_DIR = '/home/rpappagari/daseg/daseg'
 EXP_DIR = str(Path(WORK_DIR) / args.exp_dir)
-#SEEDS = [42] #(42, 43, 44)
-
-#opts = {
-#    'longformer': '--model-name-or-path allenai/longformer-base-4096',
-#    'bilstm': '--model-name-or-path bilstm',
-#    'xformer': '--model-name-or-path xformer',
-#    'ResNet': '--model-name-or-path ResNet',
-#    'xformersegpool': '--model-name-or-path xformersegpool',
-#    'xformer_cnnop_segpool': '--model-name-or-path xformer_cnnop_segpool',
-#
-#    'longformer_text_SeqClassification': '--model-name-or-path longformer_text_SeqClassification',
-#    'longformer_speech_SeqClassification': '--model-name-or-path longformer_speech_SeqClassification',
-#    'resnet_SeqClassification': '--model-name-or-path resnet_SeqClassification',
-#    'bert-base-uncased': '--model-name-or-path bert-base-uncased',
-#    'bert-base-cased': '--model-name-or-path bert-base-cased',
-#    'TransformerMultiModalSeqClassification': '--model-name-or-path TransformerMultiModalSeqClassification',
-#    'TransformerMultiModalMultiLossSeqClassification': '--model-name-or-path TransformerMultiModalMultiLossSeqClassification',
-#    'bilstm_SeqClassification': '--model-name-or-path bilstm_SeqClassification',
-#
-#    'truecasing_longformer_tokenclassif': '--model-name-or-path truecasing_longformer_tokenclassif',
-#    'punctuation_longformer_tokenclassif': '--model-name-or-path punctuation_longformer_tokenclassif',
-#    'truecasing_punctuation_longformer_tokenclassif': '--model-name-or-path truecasing_punctuation_longformer_tokenclassif',
-#    'truecasing_punctuation_longformer_tokenclassif_OneLossFun': '--model-name-or-path truecasing_punctuation_longformer_tokenclassif_OneLossFun',
-#    'truecasing_punctuation_Morethan2Tasks_longformer_tokenclassif': '--model-name-or-path truecasing_punctuation_Morethan2Tasks_longformer_tokenclassif',
-#    'truecasing_longformer_tokenclassif_Debug': '--model-name-or-path truecasing_longformer_tokenclassif_Debug',
-#}
-
 
 if args.model_name == 'longformer':
     args.model_name = 'allenai/longformer-base-4096'
@@ -185,18 +162,38 @@ else:
 corpus = args.corpus #'IEMOCAP'
 seed = args.seed
 
-submit(f"dasg_TrueCasing train-transformer --model-name-or-path {args.model_name} -b {args.batch_size} -c 1 -e {args.no_epochs} "
-       f"-r {args.seed} -g {args.num_gpus} --gradient-accumulation-steps {args.gacc} "
-       f"--max-sequence-length {args.max_sequence_length} --pre-trained-model {args.pre_trained_model} "
-       f"--frame-len {args.frame_len} --data-dir {args.data_dir} --train-mode {args.train_mode} "
-       f"--label-scheme {args.label_scheme} --segmentation-type {args.segmentation_type} "
-       f"--results-suffix {args.results_suffix} --concat-aug {args.concat_aug} "
-       f"--emospotloss-wt {args.emospotloss_wt} --emospot-concat {args.emospot_concat} "
-       f"--label-smoothing-alpha {args.label_smoothing_alpha} --test-file {args.test_file} "
-       f"--full-speech {args.full_speech} --monitor-metric {args.monitor_metric} "
-       f"--monitor-metric-mode {args.monitor_metric_mode} --pretrained-model-path {args.pretrained_model_path} "
-       f"--loss-wts {args.loss_wts} --hf-model-name {args.hf_model_name} --pretrained-full-model-path {args.pretrained_full_model_path}  {outdir()} ", 
-       name='train', work_dir=WORK_DIR, num_gpus=args.num_gpus)
+cmd = (f"dasg_TrueCasing train-transformer --model-name-or-path {args.model_name} -b {args.batch_size} -c 1 -e {args.no_epochs} "
+    f"-r {args.seed} -g {args.num_gpus} --gradient-accumulation-steps {args.gacc} "
+    f"--max-sequence-length {args.max_sequence_length} --pre-trained-model {args.pre_trained_model} "
+    f"--frame-len {args.frame_len} --data-dir {args.data_dir} --train-mode {args.train_mode} "
+    f"--label-scheme {args.label_scheme} --segmentation-type {args.segmentation_type} "
+    f"--results-suffix {args.results_suffix} --concat-aug {args.concat_aug} "
+    f"--emospotloss-wt {args.emospotloss_wt} --emospot-concat {args.emospot_concat} "
+    f"--label-smoothing-alpha {args.label_smoothing_alpha} --test-file {args.test_file} "
+    f"--full-speech {args.full_speech} --monitor-metric {args.monitor_metric} "
+    f"--monitor-metric-mode {args.monitor_metric_mode} --pretrained-model-path {args.pretrained_model_path} "
+    f"--loss-wts {args.loss_wts} --hf-model-name {args.hf_model_name} --pretrained-full-model-path {args.pretrained_full_model_path}  {outdir()} ")
+
+
+
+if (args.gpu_ind != -1) and (not args.use_grid) and (args.num_gpus == 1):
+    cmd = 'CUDA_VISIBLE_DEVICES=' + str(args.gpu_ind) + ' ' + cmd
+
+submit(cmd, name='train', work_dir=WORK_DIR, num_gpus=args.num_gpus)
+
+
+#submit(f"dasg_TrueCasing train-transformer --model-name-or-path {args.model_name} -b {args.batch_size} -c 1 -e {args.no_epochs} "
+#       f"-r {args.seed} -g {args.num_gpus} --gradient-accumulation-steps {args.gacc} "
+#       f"--max-sequence-length {args.max_sequence_length} --pre-trained-model {args.pre_trained_model} "
+#       f"--frame-len {args.frame_len} --data-dir {args.data_dir} --train-mode {args.train_mode} "
+#       f"--label-scheme {args.label_scheme} --segmentation-type {args.segmentation_type} "
+#       f"--results-suffix {args.results_suffix} --concat-aug {args.concat_aug} "
+#       f"--emospotloss-wt {args.emospotloss_wt} --emospot-concat {args.emospot_concat} "
+#       f"--label-smoothing-alpha {args.label_smoothing_alpha} --test-file {args.test_file} "
+#       f"--full-speech {args.full_speech} --monitor-metric {args.monitor_metric} "
+#       f"--monitor-metric-mode {args.monitor_metric_mode} --pretrained-model-path {args.pretrained_model_path} "
+#       f"--loss-wts {args.loss_wts} --hf-model-name {args.hf_model_name} --pretrained-full-model-path {args.pretrained_full_model_path}  {outdir()} ", 
+#       name='train', work_dir=WORK_DIR, num_gpus=args.num_gpus)
 
 
 

@@ -5,7 +5,7 @@ from cytoolz.itertoolz import sliding_window
 
 from daseg import DialogActCorpus, FunctionalSegment, Call
 from daseg.data import NEW_TURN, is_begin_act, is_continued_act, decode_act, BLANK
-from hdf_utils import hdf5_write
+from daseg.hdf_utils import hdf5_write
 import h5py
 import numpy as np
 
