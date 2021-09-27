@@ -25,7 +25,7 @@ do
         task=fromCNN2500cased_crossdomain_truecasing_punctuation_tokenclassif_BERT${common_suffix}
         #task=crossdomain_truecasing_punctuation_tokenclassif_BERT${common_suffix}
         #task=fromuncased_crossdomain_truecasing_punctuation_tokenclassif_BERT${common_suffix}
-        bash wrappers/run_TrueCasing_data_v3.sh 1 $train_mode $gpu 4 8 -1 $seed $task $grid $challenge_eval $common_suffix $loss_wts $dataset $HF_model_name $eval_dataset $gpu_ind
+        bash wrappers/TrueCasingPunctuation/run_TrueCasing_data_v3.sh 1 $train_mode $gpu 4 8 -1 $seed $task $grid $challenge_eval $common_suffix $loss_wts $dataset $HF_model_name $eval_dataset $gpu_ind
     done
 
     echo $loss_wts

@@ -151,7 +151,7 @@ with open(data_tsv_path, 'r') as f:
         doc_path = i.split(',')[1].strip('\n')
         data_doc_segments += extract_single_topic_segments(doc_path)
 
-mix_count = 2
+mix_count = 5 #2
 data_doc_segments_mixed = []
 for _ in range(mix_count):
     data_doc_segments_mixed += mix_doc_segments(data_doc_segments)

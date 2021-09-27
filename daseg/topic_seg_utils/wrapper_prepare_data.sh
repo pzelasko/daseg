@@ -21,15 +21,17 @@
 ####  create concataug data
 for fold in $(seq 1 10)
 do
-    for  i in energa logisfera telco
+    for  i in logisfera_telco #energa logisfera telco
     do
-        concat_aug_dir=/dih4/dih4_2/jhu/Raghu/topic_seg_data_dirs/data_${i}_ForI-Scheme_WithSEP_OnlySmoothSegmentation_ConcatAug_2times_cv10/
+        #concat_aug_dir=/dih4/dih4_2/jhu/Raghu/topic_seg_data_dirs/data_${i}_ForI-Scheme_WithSEP_OnlySmoothSegmentation_ConcatAug_2times_cv10/
+        concat_aug_dir=/dih4/dih4_2/jhu/Raghu/topic_seg_data_dirs/data_${i}_ForI-Scheme_WithSEP_OnlySmoothSegmentation_ConcatAug_5times_cv10/
 
-        #python topic_seg_utils/prepare_concataug_data.py ${concat_aug_dir} $fold /dih4/dih4_2/jhu/Raghu/topic_seg_data_dirs/data_${i}_WithSEP_cv10/cv_${fold}/train.tsv I- False True True
-        #cp ${concat_aug_dir}/cv_${fold}/utt2csvpath_train ${concat_aug_dir}/cv_${fold}/utt2csvpath
-        #cat /dih4/dih4_2/jhu/Raghu/topic_seg_data_dirs/data_${i}_WithSEP_cv10//cv_${fold}/utt2csvpath_* > /dih4/dih4_2/jhu/Raghu/topic_seg_data_dirs/data_${i}_WithSEP_cv10//cv_${fold}/utt2csvpath
+        python topic_seg_utils/prepare_concataug_data.py ${concat_aug_dir} $fold /dih4/dih4_2/jhu/Raghu/topic_seg_data_dirs/data_${i}_WithSEP_cv10/cv_${fold}/train.tsv I- False True True
+        cp ${concat_aug_dir}/cv_${fold}/utt2csvpath_train ${concat_aug_dir}/cv_${fold}/utt2csvpath
 
-        python topic_seg_utils/concat_data_dir.py /dih4/dih4_2/jhu/Raghu/topic_seg_data_dirs/data_${i}_ForI-Scheme_WithSEP_OnlySmoothSegmentation_cv10//cv_${fold}/,${concat_aug_dir}//cv_${fold}/ /dih4/dih4_2/jhu/Raghu/topic_seg_data_dirs/data_${i}_ForI-Scheme_WithSEP_OnlySmoothSegmentation_ConcatAug_2times_WithOrigData_cv10//cv_${fold}/ 0
+        #python topic_seg_utils/concat_data_dir.py /dih4/dih4_2/jhu/Raghu/topic_seg_data_dirs/data_${i}_ForI-Scheme_WithSEP_OnlySmoothSegmentation_cv10//cv_${fold}/,${concat_aug_dir}//cv_${fold}/ /dih4/dih4_2/jhu/Raghu/topic_seg_data_dirs/data_${i}_ForI-Scheme_WithSEP_OnlySmoothSegmentation_ConcatAug_2times_WithOrigData_cv10//cv_${fold}/ 0
+
+        python topic_seg_utils/concat_data_dir.py /dih4/dih4_2/jhu/Raghu/topic_seg_data_dirs/data_${i}_ForI-Scheme_WithSEP_OnlySmoothSegmentation_cv10//cv_${fold}/,${concat_aug_dir}//cv_${fold}/ /dih4/dih4_2/jhu/Raghu/topic_seg_data_dirs/data_${i}_ForI-Scheme_WithSEP_OnlySmoothSegmentation_ConcatAug_5times_WithOrigData_cv10//cv_${fold}/ 0
     
     done
 done
