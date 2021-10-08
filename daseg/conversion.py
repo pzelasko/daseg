@@ -50,7 +50,7 @@ def predictions_to_dataset(
 ) -> DialogActCorpus:
     dialogues = {}
     for (call_id, call), pred_tags in zip(original_dataset.dialogues.items(), predictions):
-        words, _, speakers = call.words_with_metadata(add_turn_token=True)
+        words, orig_labels, speakers = call.words_with_metadata(add_turn_token=True)
         assert len(words) == len(pred_tags), \
             f'Mismatched words ({len(words)}) and predicted tags ({len(pred_tags)}) counts for conversation "{call_id}"'
 

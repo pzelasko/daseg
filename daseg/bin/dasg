@@ -130,12 +130,18 @@ def evaluate(
     results['args'] = ctx.params
     with SlackNotifier(' '.join(sys.argv)) as slack:
         for res_grp in (
-                'sklearn_metrics', 'seqeval_metrics', 'zhao_kawahara_metrics', 'ORIGINAL_zhao_kawahara_metrics',
+                'sklearn_metrics', 'seqeval_metrics', 'zhao_kawahara_metrics',
+                'segeval_metrics',
                 'args'
         ):
             slack.write_and_print(f'{res_grp.upper()}:')
             for key, val in results[res_grp].items():
-                slack.write_and_print(f'{key}\t{val:.2%}')
+                try:
+                    # TODO: rewrite cleaner later
+                    if isinstance(val, int): raise Exception()
+                    slack.write_and_print(f'{key}\t{val:.2%}')
+                except:
+                    slack.write_and_print(f'{key}\t{val}')
     if save_output is not None:
         with open(save_output, 'wb') as f:
             pickle.dump(results, f)
@@ -388,7 +394,10 @@ def evaluate_bigru(
     results['args'] = ctx.params
     with SlackNotifier(' '.join(sys.argv)) as slack:
         for key, val in results['log'].items():
-            slack.write_and_print(f'{key}\t{val:.2%}')
+            try:
+                slack.write_and_print(f'{key}\t{val:.2%}')
+            except:
+                slack.write_and_print(f'{key}\t{val}')
     if save_output is not None:
         with open(save_output, 'wb') as f:
             pickle.dump(results, f)

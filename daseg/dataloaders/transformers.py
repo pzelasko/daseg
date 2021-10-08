@@ -118,7 +118,7 @@ def to_dataloader(dataset: Dataset, padding_at_start: bool, batch_size: int, tra
         batch_size=batch_size,
         collate_fn=partial(truncate_padding_collate_fn, padding_at_start=padding_at_start),
         pin_memory=True,
-        num_workers=4
+        num_workers=0
     )
 
 
@@ -195,13 +195,17 @@ def truncate_padding_collate_fn(batch: List[List[torch.Tensor]], padding_at_star
 
 
 def pad_list_of_arrays(arrays: List[np.ndarray], value: float) -> List[np.ndarray]:
-    max_out_len = max(x.shape[1] for x in arrays)
+    if len(arrays[0].shape) > 1:
+        max_out_len = max(x.shape[1] for x in arrays)
+    else:
+        max_out_len = max(x.shape[0] for x in arrays)
     return [pad_array(t, target_len=max_out_len, value=value) for t in arrays]
 
 
 def pad_array(arr: np.ndarray, target_len: int, value: float):
-    if arr.shape[1] == target_len:
+    len_dim = 1 if len(arr.shape) > 1 else 0
+    if arr.shape[len_dim] == target_len:
         return arr
     pad_shape = list(arr.shape)
-    pad_shape[1] = target_len - arr.shape[1]
-    return np.concatenate([arr, np.ones(pad_shape) * value], axis=1)
+    pad_shape[len_dim] = target_len - arr.shape[len_dim]
+    return np.concatenate([arr, np.ones(pad_shape) * value], axis=len_dim)

@@ -211,7 +211,7 @@ class DialogActCorpus:
 
     @property
     def dialog_acts(self) -> List[str]:
-        return sorted(set(segment.dialog_act for call in self.calls for segment in call))
+        return sorted(set(str(segment.dialog_act) for call in self.calls for segment in call))
 
     @property
     def dialog_act_labels(self) -> List[str]:

@@ -128,10 +128,12 @@ class TransformerModel:
                 use_joint_coding=use_joint_coding,
                 use_turns=use_turns
             )
+        elif not isinstance(dataset, torch.utils.data.DataLoader):
+            dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size)
         else:
             dataloader = dataset
 
-        eval_ce_losses, logits, out_label_ids = zip(*list(maybe_tqdm(
+        eval_ce_losses, logits, out_label_ids, input_ids = zip(*list(maybe_tqdm(
             map(
                 partial(
                     predict_batch_in_windows,
@@ -149,18 +151,24 @@ class TransformerModel:
         pad_token_label_id = CrossEntropyLoss().ignore_index
         out_label_ids = pad_list_of_arrays(out_label_ids, value=pad_token_label_id)
         logits = pad_list_of_arrays(logits, value=0)
-        out_label_ids = np.concatenate(out_label_ids, axis=0)
+        out_label_ids = np.concatenate(out_label_ids, axis=0).astype(np.int32)
         logits = np.concatenate(logits, axis=0)
         preds = np.argmax(logits, axis=2)
+        input_ids = np.concatenate(pad_list_of_arrays(input_ids, value=0), axis=0)
 
         label_map = {int(k): v for k, v in self.config.id2label.items()}
+        label_map[-100] = 'O'
+        turn_tok_id = self.tokenizer.encode('<TURN>')[1]
 
+        assert out_label_ids.shape == preds.shape, f'{out_label_ids.shape} == {preds.shape}'
         out_label_list: List[List[str]] = [[] for _ in range(out_label_ids.shape[0])]
-        preds_list: List[List[str]] = [[] for _ in range(out_label_ids.shape[0])]
+        preds_list: List[List[str]] = [[] for _ in range(preds.shape[0])]
 
         for i in range(out_label_ids.shape[0]):
             for j in range(out_label_ids.shape[1]):
-                if out_label_ids[i, j] != pad_token_label_id:
+                is_ignored = out_label_ids[i, j] == pad_token_label_id
+                is_turn = input_ids[i, j] == turn_tok_id
+                if not is_ignored or is_turn:
                     out_label_list[i].append(label_map[out_label_ids[i][j]])
                     preds_list[i].append(label_map[preds[i][j]])
 
@@ -231,7 +239,7 @@ def predict_batch_in_windows(
         maxlen = batch[0].shape[1]
         window_shift = window_len - window_overlap
         windows = (
-            [t[:, i: i + window_len].contiguous().to(device) for t in batch]
+            [t[:, i: i + window_len].contiguous().to(device) if len(t.shape) > 1 else t for t in batch]
             for i in range(0, maxlen, window_shift)
         )
 
@@ -262,7 +270,7 @@ def predict_batch_in_windows(
                 mems = outputs[2]
     # workaround for PyTorch file descriptor leaks:
     # https://github.com/pytorch/pytorch/issues/973
-    returns = ce_loss, np.concatenate(logits, axis=1), deepcopy(batch[3].detach().cpu().numpy())
+    returns = ce_loss, np.concatenate(logits, axis=1), deepcopy(batch[3].detach().cpu().numpy()), deepcopy(batch[3].detach().cpu().numpy())
     for t in batch:
         del t
     return returns
