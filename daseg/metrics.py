@@ -60,18 +60,31 @@ def compute_segeval_metrics(true_dataset: DialogActCorpus, pred_dataset: DialogA
     from segeval.data import Dataset
     from segeval import boundary_similarity, pk
 
-    true_segments = Dataset({
-        cid: {'ref': [len(fs.text.split()) for fs in call]}
-        for cid, call in true_dataset.dialogues.items()
-    })
-    pred_segments = Dataset({
-        cid: {'hyp': [len(fs.text.split()) for fs in call]}
-        for cid, call in pred_dataset.dialogues.items()
-    })
+    def fix_single_seg_calls(true, pred):
+        for cid in true.keys():
+            true_segs = true[cid]["ref"]
+            pred_segs = pred[cid]["hyp"]
+            if len(true_segs) == len(pred_segs) == 1:
+                true[cid]["ref"] = true_segs + [1]
+                pred[cid]["hyp"] = pred_segs + [1]
 
+    true_segments = {
+        cid: {"ref": [len(fs.text.split()) for fs in call]}
+        for cid, call in true_dataset.dialogues.items()
+    }
+    pred_segments = {
+        cid: {"hyp": [len(fs.text.split()) for fs in call]}
+        for cid, call in pred_dataset.dialogues.items()
+    }
+    
+    fix_single_seg_calls(true_segments, pred_segments)
+    
+    pred_segments = Dataset(pred_segments)
+    true_segments = Dataset(true_segments)
+    
     return {
-        'pk': float(mean(pk(true_segments, pred_segments).values())),
-        'B': float(mean(boundary_similarity(true_segments, pred_segments).values()))
+        "pk": float(mean(pk(true_segments, pred_segments).values())),
+        "B": float(mean(boundary_similarity(true_segments, pred_segments).values())),
     }
 
 
