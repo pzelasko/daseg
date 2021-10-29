@@ -9,6 +9,7 @@ import sklearn.metrics as sklmetrics
 import torch
 from Bio import pairwise2
 from more_itertools import flatten
+from segeval.similarity import boundary_statistics
 
 from daseg import Call, DialogActCorpus
 from daseg.data import CONTINUE_TAG
@@ -83,10 +84,30 @@ def compute_segeval_metrics(true_dataset: DialogActCorpus, pred_dataset: DialogA
     pred_segments = Dataset(pred_segments)
     true_segments = Dataset(true_segments)
 
+    summary = {
+        "correct": 0,
+        "almost_correct": 0,
+        "missed_boundaries": 0,
+        "false_boundaries": 0,
+    }
+    for stat in boundary_statistics(true_segments, pred_segments).values():
+        summary["correct"] += len(stat["matches"])
+        summary["almost_correct"] += len(stat["transpositions"])
+        summary["missed_boundaries"] += len(stat["full_misses"])
+        summary["false_boundaries"] += len(stat["additions"])
+    OK = summary["correct"] + summary["almost_correct"]
+    summary["boundary_precision"] = OK / (OK + summary["false_boundaries"])
+    summary["boundary_recall"] = OK / (OK + summary["missed_boundaries"])
+    summary["boundary_f1"] = (
+            summary["boundary_precision"]
+            * summary["boundary_recall"]
+            / (summary["boundary_precision"] + summary["boundary_recall"])
+    )
+
     B2_mean, B2_std, *_ = summarize(boundary_similarity(true_segments, pred_segments)),
     B5_mean, B5_std, *_ = summarize(boundary_similarity(true_segments, pred_segments, n_t=5)),
     B10_mean, B10_std, *_ = summarize(boundary_similarity(true_segments, pred_segments, n_t=10)),
-    return {
+    summary.update({
         "pk": float(mean(pk(true_segments, pred_segments).values())),
         "B2": float(B2_mean),
         "B2𝛔": float(B2_std),
@@ -94,8 +115,8 @@ def compute_segeval_metrics(true_dataset: DialogActCorpus, pred_dataset: DialogA
         "B5𝛔": float(B5_std),
         "B10": float(B10_mean),
         "B10𝛔": float(B10_std),
-        # "CM": summarize(boundary_confusion_matrix(true_segments, pred_segments)),
-    }
+    })
+    return summary
 
 
 def compute_zhao_kawahara_metrics_levenshtein(true_dataset: DialogActCorpus, pred_dataset: DialogActCorpus):
