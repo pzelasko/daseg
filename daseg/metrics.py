@@ -9,7 +9,6 @@ import sklearn.metrics as sklmetrics
 import torch
 from Bio import pairwise2
 from more_itertools import flatten
-from segeval.compute import summarize
 
 from daseg import Call, DialogActCorpus
 from daseg.data import CONTINUE_TAG
@@ -58,9 +57,10 @@ def compute_seqeval_metrics(true_labels: List[List[str]], predictions: List[List
 
 def compute_segeval_metrics(true_dataset: DialogActCorpus, pred_dataset: DialogActCorpus):
     from statistics import mean
+    from segeval import boundary_similarity, pk
     from segeval.data import Dataset
     from segeval.similarity import boundary_confusion_matrix
-    from segeval import boundary_similarity, pk
+    from segeval.compute import summarize
 
     def fix_single_seg_calls(true, pred):
         for cid in true.keys():
