@@ -60,17 +60,18 @@ def as_windows(
                 )
             if (n_partial_tokens := max_length - cur_len) > 0:
                 n_partial_words = find_nearest(segment_tokens_per_word, n_partial_tokens)
-                partial_segment = FunctionalSegment(
-                    text=' '.join(words[:n_partial_words]),
-                    dialog_act=segment.dialog_act,
-                    speaker=segment.speaker,
-                    is_continuation=segment.is_continuation,
-                    start=segment.start,
-                    end=segment.end,
-                    completeness="right-truncated"
-                )
-                window.append(partial_segment)
-                n_segment_tokens -= np.cumsum(segment_tokens_per_word)[n_partial_words]
+                if n_partial_words > 0:
+                    partial_segment = FunctionalSegment(
+                        text=' '.join(words[:n_partial_words]),
+                        dialog_act=segment.dialog_act,
+                        speaker=segment.speaker,
+                        is_continuation=segment.is_continuation,
+                        start=segment.start,
+                        end=segment.end,
+                        completeness="right-truncated"
+                    )
+                    window.append(partial_segment)
+                    n_segment_tokens -= np.cumsum(segment_tokens_per_word)[n_partial_words]
             else:
                 n_segment_tokens = 0
             yield Call(window)
