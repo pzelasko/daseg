@@ -88,12 +88,12 @@ def compute_segeval_metrics(true_dataset: DialogActCorpus, pred_dataset: DialogA
     B10_mean, B10_std, *_ = summarize(boundary_similarity(true_segments, pred_segments, n_t=10)),
     return {
         "pk": float(mean(pk(true_segments, pred_segments).values())),
-        "B2": B2_mean,
-        "B2𝛔": B2_std,
-        "B5": B5_mean,
-        "B5𝛔": B5_std,
-        "B10": B10_mean,
-        "B10𝛔": B10_std,
+        "B2": float(B2_mean),
+        "B2𝛔": float(B2_std),
+        "B5": float(B5_mean),
+        "B5𝛔": float(B5_std),
+        "B10": float(B10_mean),
+        "B10𝛔": float(B10_std),
         # "CM": summarize(boundary_confusion_matrix(true_segments, pred_segments)),
     }
 
