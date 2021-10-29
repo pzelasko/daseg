@@ -444,11 +444,15 @@ class Call(List['FunctionalSegment']):
             for (_, prv), (idx, cur), (_, nxt) in segment_windows:
                 if use_joint_coding:
                     enc = [(word, CONTINUE_TAG) for word in cur.text.split()]
-                    if not (continuations_allowed and nxt is not None and nxt.is_continuation):
+                    there_is_a_continuation = continuations_allowed and nxt is not None and nxt.is_continuation
+                    segment_is_finished = cur.completeness in ['complete', 'left-truncated']
+                    if not there_is_a_continuation and segment_is_finished:
                         enc[-1] = (enc[-1][0], cur.dialog_act)
                 else:
                     enc = [(word, f'{CONTINUE_TAG}{cur.dialog_act}') for word in cur.text.split()]
-                    if not (continuations_allowed and cur.is_continuation):
+                    cur_is_continuation = continuations_allowed and cur.is_continuation
+                    segment_is_starting = cur.completeness in ['complete', 'right-truncated']
+                    if not cur_is_continuation and segment_is_starting:
                         enc[0] = (enc[0][0], f'{BEGIN_TAG}{cur.dialog_act}')
                 words, acts = zip(*enc)
                 encoded_segment = EncodedSegment(
