@@ -59,7 +59,6 @@ def compute_segeval_metrics(true_dataset: DialogActCorpus, pred_dataset: DialogA
     from statistics import mean
     from segeval import boundary_similarity, pk
     from segeval.data import Dataset
-    from segeval.similarity import boundary_confusion_matrix
     from segeval.compute import summarize
 
     def fix_single_seg_calls(true, pred):
@@ -89,7 +88,7 @@ def compute_segeval_metrics(true_dataset: DialogActCorpus, pred_dataset: DialogA
         "B(tol=2)": summarize(boundary_similarity(true_segments, pred_segments)),
         "B(tol=5)": summarize(boundary_similarity(true_segments, pred_segments, n_t=5)),
         "B(tol=10)": summarize(boundary_similarity(true_segments, pred_segments, n_t=10)),
-        "CM": summarize(boundary_confusion_matrix(true_segments, pred_segments)),
+        # "CM": summarize(boundary_confusion_matrix(true_segments, pred_segments)),
     }
 
 
