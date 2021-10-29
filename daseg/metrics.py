@@ -84,7 +84,7 @@ def compute_segeval_metrics(true_dataset: DialogActCorpus, pred_dataset: DialogA
     true_segments = Dataset(true_segments)
 
     result = boundary_statistics(true_segments, pred_segments)
-   
+
     result.update({
         "pk": float(mean(pk(true_segments, pred_segments).values())),
         "B": float(mean(boundary_similarity(true_segments, pred_segments).values())),

@@ -9,7 +9,8 @@ from torch.nn import CrossEntropyLoss
 from torch.utils.data import DataLoader, Dataset, RandomSampler, SequentialSampler, TensorDataset
 from transformers import PreTrainedTokenizer
 
-from daseg import Call, DialogActCorpus
+from daseg import Call, DialogActCorpus, FunctionalSegment
+from daseg.data import find_nearest
 from daseg.utils_ner import InputExample, convert_examples_to_features
 
 
