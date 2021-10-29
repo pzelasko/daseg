@@ -1,19 +1,20 @@
 import warnings
 from functools import partial
 from itertools import chain
-from typing import Iterable, Optional, List
+from typing import Iterable, List, Optional
 
 import numpy as np
 import torch
 from torch.nn import CrossEntropyLoss
-from torch.utils.data import DataLoader, TensorDataset, SequentialSampler, RandomSampler, Dataset
+from torch.utils.data import DataLoader, Dataset, RandomSampler, SequentialSampler, TensorDataset
 from transformers import PreTrainedTokenizer
 
-from daseg import DialogActCorpus, Call
+from daseg import Call, DialogActCorpus
 from daseg.utils_ner import InputExample, convert_examples_to_features
 
 
-def as_windows(call: Call, max_length: int, tokenizer: PreTrainedTokenizer, use_joint_coding: bool) -> Iterable[Call]:
+def as_windows_old(call: Call, max_length: int, tokenizer: PreTrainedTokenizer, use_joint_coding: bool) -> Iterable[
+    Call]:
     if not use_joint_coding:
         warnings.warn('Call windows are not available when joint coding is turned off. Some calls will be truncated.')
         return [call]
@@ -33,6 +34,52 @@ def as_windows(call: Call, max_length: int, tokenizer: PreTrainedTokenizer, use_
         yield Call(window)
 
 
+def as_windows(
+        call: Call,
+        max_length: int,
+        tokenizer: PreTrainedTokenizer,
+        use_joint_coding: bool,
+        allow_partial_segments: bool = False,
+) -> Iterable[Call]:
+    if not use_joint_coding:
+        warnings.warn(
+            "Call windows are not available when joint coding is turned off. Some calls will be truncated."
+        )
+        return [call]
+    window = []
+    cur_len = 0
+    for segment in call:
+        words = segment.text.split()
+        segment_tokens_per_word = [len(tokenizer.tokenize(w)) for w in words]
+        n_segment_tokens = sum(segment_tokens_per_word)
+        if cur_len + n_segment_tokens > max_length:
+            if not window and not allow_partial_segments:
+                raise ValueError(
+                    "Max sequence length is too low - a segment longer than this value was found."
+                )
+            if (n_partial_tokens := max_length - cur_len) > 0:
+                n_partial_words = find_nearest(segment_tokens_per_word, n_partial_tokens)
+                partial_segment = FunctionalSegment(
+                    text=' '.join(words[:n_partial_words]),
+                    dialog_act=segment.dialog_act,
+                    speaker=segment.speaker,
+                    is_continuation=segment.is_continuation,
+                    start=segment.start,
+                    end=segment.end,
+                    completeness="right-truncated"
+                )
+                window.append(partial_segment)
+                n_segment_tokens -= np.cumsum(segment_tokens_per_word)[n_partial_words]
+            else:
+                n_segment_tokens = 0
+            yield Call(window)
+            window = []
+            cur_len = n_segment_tokens
+        window.append(segment)
+    if window:
+        yield Call(window)
+
+
 def to_dataset(
         corpus: DialogActCorpus,
         tokenizer: PreTrainedTokenizer,
@@ -41,7 +88,8 @@ def to_dataset(
         max_seq_length: Optional[int] = None,
         windows_if_exceeds_max_length: bool = False,
         use_joint_coding: bool = True,
-        use_turns: bool = False
+        use_turns: bool = False,
+        allow_partial_segments: bool = False,
 ) -> TensorDataset:
     ner_examples = []
     for idx, call in enumerate(corpus.calls):
@@ -55,7 +103,8 @@ def to_dataset(
                     call=call,
                     max_length=max_seq_length,
                     tokenizer=tokenizer,
-                    use_joint_coding=use_joint_coding
+                    use_joint_coding=use_joint_coding,
+                    allow_partial_segments=allow_partial_segments,
                 )
             else:
                 call_parts = [call]
@@ -132,6 +181,7 @@ def to_transformers_train_dataloader(
         use_joint_coding: bool = True,
         use_turns: bool = False,
         windows_if_exceeds_max_length: bool = False,
+        allow_partial_segments: bool = False,
 ) -> DataLoader:
     dataset = to_dataset(
         corpus=corpus,
@@ -141,7 +191,8 @@ def to_transformers_train_dataloader(
         max_seq_length=max_seq_length,
         use_joint_coding=use_joint_coding,
         use_turns=use_turns,
-        windows_if_exceeds_max_length=windows_if_exceeds_max_length
+        windows_if_exceeds_max_length=windows_if_exceeds_max_length,
+        allow_partial_segments=allow_partial_segments,
     )
     return to_dataloader(dataset, batch_size=batch_size, train=True, padding_at_start=model_type == 'xlnet')
 
@@ -154,7 +205,8 @@ def to_transformers_eval_dataloader(
         labels: Iterable[str],
         max_seq_length: Optional[int] = None,
         use_joint_coding: bool = True,
-        use_turns: bool = False
+        use_turns: bool = False,
+        allow_partial_segments: bool = False,
 ) -> DataLoader:
     """
     Convert the DA dataset into a PyTorch DataLoader for inference.
@@ -173,7 +225,8 @@ def to_transformers_eval_dataloader(
         labels=labels,
         max_seq_length=max_seq_length,
         use_joint_coding=use_joint_coding,
-        use_turns=use_turns
+        use_turns=use_turns,
+        allow_partial_segments=allow_partial_segments,
     )
     return to_dataloader(dataset, batch_size=batch_size, train=False, padding_at_start=model_type == 'xlnet')
 

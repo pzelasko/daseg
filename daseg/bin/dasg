@@ -158,6 +158,7 @@ def evaluate(
 @click.option('-l', '--max-sequence-length', default=4096, type=int)
 @click.option('-n', '--turns', is_flag=True)
 @click.option('-w', '--windows-if-exceeds-max-len', is_flag=True)
+@click.option('-a', '--allow-partial-segments', is_flag=True)
 def prepare_exp(
         output_dir: Path,
         model_name_or_path: str,
@@ -168,6 +169,7 @@ def prepare_exp(
         max_sequence_length: int,
         turns: bool,
         windows_if_exceeds_max_len: bool,
+        allow_partial_segments: bool,
 ):
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -189,7 +191,8 @@ def prepare_exp(
             labels=model.labels,
             max_seq_length=max_sequence_length,
             use_turns=turns,
-            windows_if_exceeds_max_length=windows_if_exceeds_max_len
+            windows_if_exceeds_max_length=windows_if_exceeds_max_len,
+            allow_partial_segments=allow_partial_segments,
         )
         for key, split_corpus in corpus.train_dev_test_split().items()
     }

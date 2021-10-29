@@ -7,8 +7,9 @@ from collections import Counter
 from functools import partial
 from itertools import chain, groupby
 from pathlib import Path
-from typing import Callable, Dict, FrozenSet, Iterable, List, Mapping, NamedTuple, Optional, Set, Tuple
+from typing import Callable, Dict, FrozenSet, Iterable, List, Literal, Mapping, NamedTuple, Optional, Set, Tuple
 
+import numpy as np
 from cytoolz.itertoolz import sliding_window
 from more_itertools import flatten
 from spacy import displacy
@@ -475,6 +476,23 @@ class Call(List['FunctionalSegment']):
 
         return encoded_call
 
+    def cut_segments_in_windows(self, window_size_in_tokens: int, tokenizer) -> "Call":
+        """
+        Return a copy of ``self`` where functional segments longer than ``window_size_in_tokens``
+        are split into partial segments. In order to know the token count we will need a tokenizer
+        argument that has a method ``.tokenize(text: str)``.
+        """
+        return Call(
+            list(
+                chain.from_iterable(
+                    fs.to_windows(
+                        window_size_in_tokens=window_size_in_tokens, tokenizer=tokenizer
+                    )
+                    for fs in self
+                )
+            )
+        )
+
 
 def prepare_call_windows(
         call: Call,
@@ -508,6 +526,9 @@ class FunctionalSegment(NamedTuple):
     is_continuation: bool = False
     start: Optional[float] = None
     end: Optional[float] = None
+    completeness: Literal[
+        "complete", "left-truncated", "right-truncated", "both-truncated"
+    ] = "complete"
 
     @property
     def num_words(self) -> int:
@@ -520,6 +541,62 @@ class FunctionalSegment(NamedTuple):
     def with_vocabulary(self, vocabulary: Set[str]) -> 'FunctionalSegment':
         new_text = ' '.join(w if w in vocabulary else OOV for w in self.text.split())
         return FunctionalSegment(new_text, *self[1:])
+
+    def to_windows(
+            self, window_size_in_tokens: int, tokenizer
+    ) -> List["FunctionalSegment"]:
+        words = self.text.split()
+        segment_tokens_per_word = [len(tokenizer.tokenize(w)) for w in words]
+        n_segment_tokens = sum(segment_tokens_per_word)
+        if n_segment_tokens <= window_size_in_tokens:
+            return [self]
+
+        partial_segments = []
+        is_first = True
+        is_last = False
+        while words:
+            if n_segment_tokens < window_size_in_tokens:
+                text = " ".join(words)
+                words = []
+                is_last = True
+            else:
+                n_partial_words = find_nearest(
+                    segment_tokens_per_word, window_size_in_tokens
+                )
+                text = " ".join(words[:n_partial_words])
+                words = words[n_partial_words:]
+            partial_segments.append(
+                FunctionalSegment(
+                    text=text,
+                    dialog_act=self.dialog_act,
+                    speaker=self.speaker,
+                    is_continuation=self.is_continuation,
+                    start=self.start,
+                    end=self.end,
+                    completeness=(
+                        "right-truncated"
+                        if is_first
+                        else "left-truncated"
+                        if is_last
+                        else "both-truncated"
+                    ),
+                )
+            )
+            is_first = False
+
+        return partial_segments
+
+
+def find_nearest(array: List[int], value: int):
+    """
+    Find the index of the closest element to ``value`` in cumulative sum of ``array``
+    that is not greater than ``value``.
+    """
+    array = np.cumsum(array)
+    diff = array - value
+    diff = np.where(diff <= 0, diff, np.inf)
+    idx = diff.argmin()
+    return idx
 
 
 class EncodedSegment(NamedTuple):
