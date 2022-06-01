@@ -64,16 +64,6 @@ class TransformerModel:
         labels = ckpt['hyper_parameters']['labels']
         mname = ckpt['hyper_parameters']['model_name_or_path']
 
-        # Create a model but do not try to populate the weights with pretrained transformers
-        # as that will fail due to incompatibilities of my code and their latest checkpoints.
-        pl_model = DialogActTransformer(labels, mname, pretrained=False)
-        if pl_model.config.model_type == 'longformer':
-            # We have to manually add position ids to the state dict in the same way as transformers lib does...
-            ckpt['state_dict']['model.longformer.embeddings.position_ids'] = \
-                torch.arange(pl_model.config.max_position_embeddings).expand((1, -1))
-            # Remove extra keys that are no longer needed...
-            for k in ["model.longformer.pooler.dense.weight", "model.longformer.pooler.dense.bias"]:
-                del ckpt['state_dict'][k]
         # Manually load the state dict
         pl_model.load_state_dict(ckpt['state_dict'])
 

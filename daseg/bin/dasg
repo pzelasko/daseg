@@ -90,7 +90,10 @@ def evaluate(
         ):
             slack.write_and_print(f'{res_grp.upper()}:')
             for key, val in results[res_grp].items():
-                slack.write_and_print(f'{key}\t{val:.2%}')
+                if isinstance(val, float):
+                    slack.write_and_print(f'{key}\t{val:.2%}')
+                else:
+                    slack.write_and_print(f'{key}\t{val}')
     if save_output is not None:
         with open(save_output, 'wb') as f:
             pickle.dump(results, f)
@@ -341,7 +344,10 @@ def evaluate_bigru(
     results['args'] = ctx.params
     with SlackNotifier(' '.join(sys.argv)) as slack:
         for key, val in results['log'].items():
-            slack.write_and_print(f'{key}\t{val:.2%}')
+            if isinstance(val, float):
+                slack.write_and_print(f'{key}\t{val:.2%}')
+            else:
+                slack.write_and_print(f'{key}\t{val}')
     if save_output is not None:
         with open(save_output, 'wb') as f:
             pickle.dump(results, f)
